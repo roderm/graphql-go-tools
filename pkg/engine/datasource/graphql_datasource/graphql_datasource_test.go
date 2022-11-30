@@ -3922,8 +3922,10 @@ func TestGraphQLDataSource(t *testing.T) {
 	t.Run("federation with interface", RunTest(federationTestSchema,
 		`	query MyReviews {
 						self {
+							id
+							__typename
 							... on User {
-								id
+								uid: id
 								username
 								reviews {
 									body
@@ -3936,8 +3938,9 @@ func TestGraphQLDataSource(t *testing.T) {
 			Response: &resolve.GraphQLResponse{
 				Data: &resolve.Object{
 					Fetch: &resolve.SingleFetch{
-						BufferId:              0,
-						Input:                 `{"method":"POST","url":"http://user.service","body":{"query":"{self {__typename ... on User {id username}}}"}}`,
+						BufferId: 0,
+						// Input:                 `{"method":"POST","url":"http://user.service","body":{"query":"{self {__typename id ... on User {uid: id username}}"}}`,
+						Input:                 `{"method":"POST","url":"http://user.service","body":{"query":"{self {__typename id ... on User {uid: id username id}}}"}}`,
 						DataSource:            &Source{},
 						DataSourceIdentifier:  []byte("graphql_datasource.Source"),
 						ProcessResponseConfig: resolve.ProcessResponseConfig{ExtractGraphqlResponse: true},
@@ -3978,15 +3981,31 @@ func TestGraphQLDataSource(t *testing.T) {
 										},
 									},
 									{
-										Name: []byte("username"),
+										Name: []byte("__typename"),
+										Value: &resolve.String{
+											IsTypeName: true,
+											Path:       []string{"__typename"},
+										},
+									},
+									{
+										Name:       []byte("id"),
+										OnTypeName: []byte("User"),
+										Value: &resolve.String{
+											Path: []string{"uid"},
+										},
+									},
+									{
+										Name:       []byte("username"),
+										OnTypeName: []byte("User"),
 										Value: &resolve.String{
 											Path: []string{"username"},
 										},
 									},
 									{
-										HasBuffer: true,
-										BufferID:  1,
-										Name:      []byte("reviews"),
+										HasBuffer:  true,
+										BufferID:   1,
+										Name:       []byte("reviews"),
+										OnTypeName: []byte("User"),
 										Value: &resolve.Array{
 											Path:     []string{"reviews"},
 											Nullable: true,
@@ -4031,7 +4050,7 @@ func TestGraphQLDataSource(t *testing.T) {
 						},
 						Federation: FederationConfiguration{
 							Enabled:    true,
-							ServiceSDL: "extend type Query {me: User} type User @key(fields: \"id\"){ id: ID! username: String!}",
+							ServiceSDL: "extend type Query {self: User} type User @key(fields: \"id\"){ id: ID! username: String!}",
 						},
 					}),
 					Factory: federationFactory,
@@ -4060,7 +4079,7 @@ func TestGraphQLDataSource(t *testing.T) {
 						},
 						Federation: FederationConfiguration{
 							Enabled:    true,
-							ServiceSDL: "type Review { body: String! author: User! @provides(fields: \"username\") } extend type User @key(fields: \"id\") { id: ID! @external reviews: [Review] }",
+							ServiceSDL: "type Review { body: String! } extend type User @key(fields: \"id\") { id: ID! @external reviews: [Review] }",
 						},
 					}),
 				},
