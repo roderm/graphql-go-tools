@@ -3925,7 +3925,7 @@ func TestGraphQLDataSource(t *testing.T) {
 							id
 							__typename
 							... on User {
-								uid: id
+								id
 								username
 								reviews {
 									body
@@ -3940,7 +3940,7 @@ func TestGraphQLDataSource(t *testing.T) {
 					Fetch: &resolve.SingleFetch{
 						BufferId: 0,
 						// Input:                 `{"method":"POST","url":"http://user.service","body":{"query":"{self {__typename id ... on User {uid: id username}}"}}`,
-						Input:                 `{"method":"POST","url":"http://user.service","body":{"query":"{self {__typename id ... on User {uid: id username id}}}"}}`,
+						Input:                 `{"method":"POST","url":"http://user.service","body":{"query":"{self {__typename id ... on User {id username}}}"}}`,
 						DataSource:            &Source{},
 						DataSourceIdentifier:  []byte("graphql_datasource.Source"),
 						ProcessResponseConfig: resolve.ProcessResponseConfig{ExtractGraphqlResponse: true},
@@ -3954,7 +3954,7 @@ func TestGraphQLDataSource(t *testing.T) {
 								Fetch: &resolve.BatchFetch{
 									Fetch: &resolve.SingleFetch{
 										BufferId: 1,
-										Input:    `{"method":"POST","url":"http://review.service","body":{"query":"query($representations: [_Any!]!){_entities(representations: $representations){... on User {reviews {body}}}}","variables":{"representations":[{"id":$$0$$,"__typename":"User"}]}}}`,
+										Input:    `{"method":"POST","url":"http://review.service","body":{"query":"query($representations: [_Any!]!){_entities(representations: $representations){__typename ... on User {reviews {body}}}}","variables":{"representations":[{"id":$$0$$,"__typename":"User"}]}}}`,
 										Variables: resolve.NewVariables(
 											&resolve.ObjectVariable{
 												Path:     []string{"id"},
@@ -3991,7 +3991,7 @@ func TestGraphQLDataSource(t *testing.T) {
 										Name:       []byte("id"),
 										OnTypeName: []byte("User"),
 										Value: &resolve.String{
-											Path: []string{"uid"},
+											Path: []string{"id"},
 										},
 									},
 									{
