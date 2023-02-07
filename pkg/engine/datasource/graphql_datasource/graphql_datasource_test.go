@@ -1175,6 +1175,231 @@ func TestGraphQLDataSource(t *testing.T) {
 		DisableResolveFieldPositions: true,
 	}))
 
+	t.Run("selections on interface type with object type and argument", RunTest(interfaceSelectionSchema, `
+		query MyQuery($format: String) {
+			user {
+				id
+				... on RegisteredUser {
+					lastLogin(format: $format)
+				}
+			}
+		}
+	`, "MyQuery", &plan.SynchronousResponsePlan{
+		Response: &resolve.GraphQLResponse{
+			Data: &resolve.Object{
+				Fetch: &resolve.SingleFetch{
+					DataSource: &Source{},
+					BufferId:   0,
+					Input:      `{"method":"POST","url":"https://swapi.com/graphql","body":{"query":"query($format: String){user {__typename id ... on RegisteredUser {lastLogin(format: $format)}}}","variables":{"format":$$0$$}}}`,
+					Variables: resolve.NewVariables(
+						&resolve.ContextVariable{
+							Path:     []string{"format"},
+							Renderer: resolve.NewJSONVariableRendererWithValidation(`{"type":["string","null"]}`),
+						},
+					),
+					DataSourceIdentifier:  []byte("graphql_datasource.Source"),
+					ProcessResponseConfig: resolve.ProcessResponseConfig{ExtractGraphqlResponse: true},
+				},
+				Fields: []*resolve.Field{
+					{
+						HasBuffer: true,
+						BufferID:  0,
+						Name:      []byte("user"),
+						Value: &resolve.Object{
+							Path:     []string{"user"},
+							Nullable: true,
+							Fields: []*resolve.Field{
+								{
+									Name: []byte("id"),
+									Value: &resolve.String{
+										Path: []string{"id"},
+									},
+								},
+								{
+									Name: []byte("lastLogin"),
+									Value: &resolve.String{
+										Path:     []string{"lastLogin"},
+										Nullable: true,
+									},
+									OnTypeName: []byte("RegisteredUser"),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}, plan.Configuration{
+		DataSources: []plan.DataSourceConfiguration{
+			{
+				RootNodes: []plan.TypeField{
+					{
+						TypeName:   "Query",
+						FieldNames: []string{"user"},
+					},
+				},
+				ChildNodes: []plan.TypeField{
+					{
+						TypeName:   "User",
+						FieldNames: []string{"id", "displayName", "isLoggedIn", "lastLogin"},
+					},
+					{
+						TypeName:   "RegisteredUser",
+						FieldNames: []string{"id", "displayName", "isLoggedIn", "lastLogin"},
+					},
+				},
+				Factory: &Factory{},
+				Custom: ConfigJson(Configuration{
+					Fetch: FetchConfiguration{
+						URL: "https://swapi.com/graphql",
+					},
+				}),
+			},
+		},
+		Fields: []plan.FieldConfiguration{
+			{
+				TypeName:  "Query",
+				FieldName: "user",
+				Arguments: []plan.ArgumentConfiguration{
+					{
+						Name:       "name",
+						SourceType: plan.FieldArgumentSource,
+					},
+				},
+			},
+			{
+				TypeName:  "User",
+				FieldName: "lastLogin",
+				Arguments: []plan.ArgumentConfiguration{
+					{
+						Name:       "format",
+						SourceType: plan.FieldArgumentSource,
+					},
+				},
+			}, {
+				TypeName:  "RegisteredUser",
+				FieldName: "lastLogin",
+				Arguments: []plan.ArgumentConfiguration{
+					{
+						Name:       "format",
+						SourceType: plan.FieldArgumentSource,
+					},
+				},
+			},
+		},
+		DisableResolveFieldPositions: true,
+	}))
+	t.Run("selections on interface type with argument", RunTest(interfaceSelectionSchema, `
+		query MyQuery($format: String) {
+			user {
+				id
+				lastLogin(format: $format)
+			}
+		}
+	`, "MyQuery", &plan.SynchronousResponsePlan{
+		Response: &resolve.GraphQLResponse{
+			Data: &resolve.Object{
+				Fetch: &resolve.SingleFetch{
+					DataSource: &Source{},
+					BufferId:   0,
+					Input:      `{"method":"POST","url":"https://swapi.com/graphql","body":{"query":"query($format: String){user {__typename id lastLogin(format: $format)}}","variables":{"format":$$0$$}}}`,
+					Variables: resolve.NewVariables(
+						&resolve.ContextVariable{
+							Path:     []string{"format"},
+							Renderer: resolve.NewJSONVariableRendererWithValidation(`{"type":["string","null"]}`),
+						},
+					),
+					DataSourceIdentifier:  []byte("graphql_datasource.Source"),
+					ProcessResponseConfig: resolve.ProcessResponseConfig{ExtractGraphqlResponse: true},
+				},
+				Fields: []*resolve.Field{
+					{
+						HasBuffer: true,
+						BufferID:  0,
+						Name:      []byte("user"),
+						Value: &resolve.Object{
+							Path:     []string{"user"},
+							Nullable: true,
+							Fields: []*resolve.Field{
+								{
+									Name: []byte("id"),
+									Value: &resolve.String{
+										Path: []string{"id"},
+									},
+								},
+								{
+									Name: []byte("lastLogin"),
+									Value: &resolve.String{
+										Path:     []string{"lastLogin"},
+										Nullable: true,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}, plan.Configuration{
+		DataSources: []plan.DataSourceConfiguration{
+			{
+				RootNodes: []plan.TypeField{
+					{
+						TypeName:   "Query",
+						FieldNames: []string{"user"},
+					},
+				},
+				ChildNodes: []plan.TypeField{
+					{
+						TypeName:   "User",
+						FieldNames: []string{"id", "displayName", "isLoggedIn", "lastLogin"},
+					},
+					{
+						TypeName:   "RegisteredUser",
+						FieldNames: []string{"id", "displayName", "isLoggedIn", "lastLogin"},
+					},
+				},
+				Factory: &Factory{},
+				Custom: ConfigJson(Configuration{
+					Fetch: FetchConfiguration{
+						URL: "https://swapi.com/graphql",
+					},
+				}),
+			},
+		},
+		Fields: []plan.FieldConfiguration{
+			{
+				TypeName:  "Query",
+				FieldName: "user",
+				Arguments: []plan.ArgumentConfiguration{
+					{
+						Name:       "name",
+						SourceType: plan.FieldArgumentSource,
+					},
+				},
+			},
+			{
+				TypeName:  "User",
+				FieldName: "lastLogin",
+				Arguments: []plan.ArgumentConfiguration{
+					{
+						Name:       "format",
+						SourceType: plan.FieldArgumentSource,
+					},
+				},
+			}, {
+				TypeName:  "RegisteredUser",
+				FieldName: "lastLogin",
+				Arguments: []plan.ArgumentConfiguration{
+					{
+						Name:       "format",
+						SourceType: plan.FieldArgumentSource,
+					},
+				},
+			},
+		},
+		DisableResolveFieldPositions: true,
+	}))
 	t.Run("variable at top level and recursively", RunTest(variableSchema, `
 		query MyQuery($name: String!){
             user(name: $name){
@@ -8479,6 +8704,7 @@ interface User {
     id: ID!
     displayName: String!
     isLoggedIn: Boolean!
+	lastLogin(format: String): String
 }
 
 type RegisteredUser implements User {
@@ -8486,6 +8712,7 @@ type RegisteredUser implements User {
     displayName: String!
     isLoggedIn: Boolean!
 	hasVerifiedEmail: Boolean!
+	lastLogin(format: String): String
 }
 `
 
