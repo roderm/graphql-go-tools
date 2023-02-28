@@ -1,3 +1,20 @@
+scalar Cursor 
+
+input Paging {
+  after: Cursor
+  first: Int = 10
+  before: Cursor
+  last: Int
+  offset: Int
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: Cursor
+  endCursor: Cursor
+}
+
 type Review {
     body: String!
     author: User! @provides(fields: "username")
@@ -7,10 +24,21 @@ type Review {
 extend type User @key(fields: "id") {
     id: ID! @external
     username: String! @external
-    reviews: [Review]
+    reviews(paging: Paging): ReviewConnection!
 }
 
 extend type Product @key(fields: "upc") {
     upc: String! @external
-    reviews: [Review]
+    reviews(paging: Paging): ReviewConnection!
+}
+
+type ReviewEdge {
+	cursor: Cursor!
+	node: Review
+}
+
+type ReviewConnection {
+	edges: [ReviewEdge]
+	pageInfo: PageInfo
+	totalCount: Int
 }

@@ -49,8 +49,15 @@ type ComplexityRoot struct {
 		FindUserByID     func(childComplexity int, id string) int
 	}
 
+	PageInfo struct {
+		EndCursor       func(childComplexity int) int
+		HasNextPage     func(childComplexity int) int
+		HasPreviousPage func(childComplexity int) int
+		StartCursor     func(childComplexity int) int
+	}
+
 	Product struct {
-		Reviews func(childComplexity int) int
+		Reviews func(childComplexity int, paging *model.Paging) int
 		Upc     func(childComplexity int) int
 	}
 
@@ -65,9 +72,20 @@ type ComplexityRoot struct {
 		Product func(childComplexity int) int
 	}
 
+	ReviewConnection struct {
+		Edges      func(childComplexity int) int
+		PageInfo   func(childComplexity int) int
+		TotalCount func(childComplexity int) int
+	}
+
+	ReviewEdge struct {
+		Cursor func(childComplexity int) int
+		Node   func(childComplexity int) int
+	}
+
 	User struct {
 		ID       func(childComplexity int) int
-		Reviews  func(childComplexity int) int
+		Reviews  func(childComplexity int, paging *model.Paging) int
 		Username func(childComplexity int) int
 	}
 
@@ -120,12 +138,45 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Entity.FindUserByID(childComplexity, args["id"].(string)), true
 
+	case "PageInfo.endCursor":
+		if e.complexity.PageInfo.EndCursor == nil {
+			break
+		}
+
+		return e.complexity.PageInfo.EndCursor(childComplexity), true
+
+	case "PageInfo.hasNextPage":
+		if e.complexity.PageInfo.HasNextPage == nil {
+			break
+		}
+
+		return e.complexity.PageInfo.HasNextPage(childComplexity), true
+
+	case "PageInfo.hasPreviousPage":
+		if e.complexity.PageInfo.HasPreviousPage == nil {
+			break
+		}
+
+		return e.complexity.PageInfo.HasPreviousPage(childComplexity), true
+
+	case "PageInfo.startCursor":
+		if e.complexity.PageInfo.StartCursor == nil {
+			break
+		}
+
+		return e.complexity.PageInfo.StartCursor(childComplexity), true
+
 	case "Product.reviews":
 		if e.complexity.Product.Reviews == nil {
 			break
 		}
 
-		return e.complexity.Product.Reviews(childComplexity), true
+		args, err := ec.field_Product_reviews_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Product.Reviews(childComplexity, args["paging"].(*model.Paging)), true
 
 	case "Product.upc":
 		if e.complexity.Product.Upc == nil {
@@ -174,6 +225,41 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Review.Product(childComplexity), true
 
+	case "ReviewConnection.edges":
+		if e.complexity.ReviewConnection.Edges == nil {
+			break
+		}
+
+		return e.complexity.ReviewConnection.Edges(childComplexity), true
+
+	case "ReviewConnection.pageInfo":
+		if e.complexity.ReviewConnection.PageInfo == nil {
+			break
+		}
+
+		return e.complexity.ReviewConnection.PageInfo(childComplexity), true
+
+	case "ReviewConnection.totalCount":
+		if e.complexity.ReviewConnection.TotalCount == nil {
+			break
+		}
+
+		return e.complexity.ReviewConnection.TotalCount(childComplexity), true
+
+	case "ReviewEdge.cursor":
+		if e.complexity.ReviewEdge.Cursor == nil {
+			break
+		}
+
+		return e.complexity.ReviewEdge.Cursor(childComplexity), true
+
+	case "ReviewEdge.node":
+		if e.complexity.ReviewEdge.Node == nil {
+			break
+		}
+
+		return e.complexity.ReviewEdge.Node(childComplexity), true
+
 	case "User.id":
 		if e.complexity.User.ID == nil {
 			break
@@ -186,7 +272,12 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 			break
 		}
 
-		return e.complexity.User.Reviews(childComplexity), true
+		args, err := ec.field_User_reviews_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.User.Reviews(childComplexity, args["paging"].(*model.Paging)), true
 
 	case "User.username":
 		if e.complexity.User.Username == nil {
@@ -263,12 +354,23 @@ var sources = []*ast.Source{
 extend type User @key(fields: "id") {
     id: ID! @external
     username: String! @external
-    reviews: [Review]
+    reviews(paging: Paging): ReviewConnection!
 }
 
 extend type Product @key(fields: "upc") {
     upc: String! @external
-    reviews: [Review]
+    reviews(paging: Paging): ReviewConnection!
+}
+
+type ReviewEdge {
+	cursor: Cursor!
+	node: Review
+}
+
+type ReviewConnection {
+	edges: [ReviewEdge]
+	pageInfo: PageInfo
+	totalCount: Int
 }
 `, BuiltIn: false},
 	{Name: "../../federation/directives.graphql", Input: `
@@ -339,6 +441,21 @@ func (ec *executionContext) field_Entity_findUserByID_args(ctx context.Context, 
 	return args, nil
 }
 
+func (ec *executionContext) field_Product_reviews_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	args := map[string]interface{}{}
+	var arg0 *model.Paging
+	if tmp, ok := rawArgs["paging"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("paging"))
+		arg0, err = ec.unmarshalOPaging2ᚖgithubᚗcomᚋwundergraphᚋgraphqlᚑgoᚑtoolsᚋexamplesᚋfederationᚋreviewsᚋgraphᚋmodelᚐPaging(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["paging"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Query___type_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
 	var err error
 	args := map[string]interface{}{}
@@ -366,6 +483,21 @@ func (ec *executionContext) field_Query__entities_args(ctx context.Context, rawA
 		}
 	}
 	args["representations"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_User_reviews_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	args := map[string]interface{}{}
+	var arg0 *model.Paging
+	if tmp, ok := rawArgs["paging"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("paging"))
+		arg0, err = ec.unmarshalOPaging2ᚖgithubᚗcomᚋwundergraphᚋgraphqlᚑgoᚑtoolsᚋexamplesᚋfederationᚋreviewsᚋgraphᚋmodelᚐPaging(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["paging"] = arg0
 	return args, nil
 }
 
@@ -596,9 +728,12 @@ func (ec *executionContext) _Product_reviews(ctx context.Context, field graphql.
 		return graphql.Null
 	}
 	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
 		return graphql.Null
 	}
-	res := resTmp.([]*model.Review)
+	res := resTmp.(*model.ReviewConnection)
 	fc.Result = res
 	return ec.marshalOReview2ᚕᚖgithubᚗcomᚋwundergraphᚋgraphqlᚑgoᚑtoolsᚋexamplesᚋfederationᚋreviewsᚋgraphᚋmodelᚐReview(ctx, field.Selections, res)
 }
@@ -1111,9 +1246,12 @@ func (ec *executionContext) _User_reviews(ctx context.Context, field graphql.Col
 		return graphql.Null
 	}
 	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
 		return graphql.Null
 	}
-	res := resTmp.([]*model.Review)
+	res := resTmp.(*model.ReviewConnection)
 	fc.Result = res
 	return ec.marshalOReview2ᚕᚖgithubᚗcomᚋwundergraphᚋgraphqlᚑgoᚑtoolsᚋexamplesᚋfederationᚋreviewsᚋgraphᚋmodelᚐReview(ctx, field.Selections, res)
 }
@@ -2953,6 +3091,70 @@ func (ec *executionContext) fieldContext___Type_specifiedByURL(ctx context.Conte
 
 // region    **************************** input.gotpl *****************************
 
+func (ec *executionContext) unmarshalInputPaging(ctx context.Context, obj interface{}) (model.Paging, error) {
+	var it model.Paging
+	asMap := map[string]interface{}{}
+	for k, v := range obj.(map[string]interface{}) {
+		asMap[k] = v
+	}
+
+	if _, present := asMap["first"]; !present {
+		asMap["first"] = 10
+	}
+
+	fieldsInOrder := [...]string{"after", "first", "before", "last", "offset"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "after":
+			var err error
+
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("after"))
+			it.After, err = ec.unmarshalOCursor2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+		case "first":
+			var err error
+
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("first"))
+			it.First, err = ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+		case "before":
+			var err error
+
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("before"))
+			it.Before, err = ec.unmarshalOCursor2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+		case "last":
+			var err error
+
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("last"))
+			it.Last, err = ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+		case "offset":
+			var err error
+
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("offset"))
+			it.Offset, err = ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+		}
+	}
+
+	return it, nil
+}
+
 // endregion **************************** input.gotpl *****************************
 
 // region    ************************** interface.gotpl ***************************
@@ -3049,6 +3251,49 @@ func (ec *executionContext) _Entity(ctx context.Context, sel ast.SelectionSet) g
 			out.Concurrently(i, func() graphql.Marshaler {
 				return rrm(innerCtx)
 			})
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch()
+	if invalids > 0 {
+		return graphql.Null
+	}
+	return out
+}
+
+var pageInfoImplementors = []string{"PageInfo"}
+
+func (ec *executionContext) _PageInfo(ctx context.Context, sel ast.SelectionSet, obj *model.PageInfo) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, pageInfoImplementors)
+	out := graphql.NewFieldSet(fields)
+	var invalids uint32
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("PageInfo")
+		case "hasNextPage":
+
+			out.Values[i] = ec._PageInfo_hasNextPage(ctx, field, obj)
+
+			if out.Values[i] == graphql.Null {
+				invalids++
+			}
+		case "hasPreviousPage":
+
+			out.Values[i] = ec._PageInfo_hasPreviousPage(ctx, field, obj)
+
+			if out.Values[i] == graphql.Null {
+				invalids++
+			}
+		case "startCursor":
+
+			out.Values[i] = ec._PageInfo_startCursor(ctx, field, obj)
+
+		case "endCursor":
+
+			out.Values[i] = ec._PageInfo_endCursor(ctx, field, obj)
+
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -3211,6 +3456,71 @@ func (ec *executionContext) _Review(ctx context.Context, sel ast.SelectionSet, o
 			if out.Values[i] == graphql.Null {
 				invalids++
 			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch()
+	if invalids > 0 {
+		return graphql.Null
+	}
+	return out
+}
+
+var reviewConnectionImplementors = []string{"ReviewConnection"}
+
+func (ec *executionContext) _ReviewConnection(ctx context.Context, sel ast.SelectionSet, obj *model.ReviewConnection) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, reviewConnectionImplementors)
+	out := graphql.NewFieldSet(fields)
+	var invalids uint32
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ReviewConnection")
+		case "edges":
+
+			out.Values[i] = ec._ReviewConnection_edges(ctx, field, obj)
+
+		case "pageInfo":
+
+			out.Values[i] = ec._ReviewConnection_pageInfo(ctx, field, obj)
+
+		case "totalCount":
+
+			out.Values[i] = ec._ReviewConnection_totalCount(ctx, field, obj)
+
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch()
+	if invalids > 0 {
+		return graphql.Null
+	}
+	return out
+}
+
+var reviewEdgeImplementors = []string{"ReviewEdge"}
+
+func (ec *executionContext) _ReviewEdge(ctx context.Context, sel ast.SelectionSet, obj *model.ReviewEdge) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, reviewEdgeImplementors)
+	out := graphql.NewFieldSet(fields)
+	var invalids uint32
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ReviewEdge")
+		case "cursor":
+
+			out.Values[i] = ec._ReviewEdge_cursor(ctx, field, obj)
+
+			if out.Values[i] == graphql.Null {
+				invalids++
+			}
+		case "node":
+
+			out.Values[i] = ec._ReviewEdge_node(ctx, field, obj)
+
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -3646,6 +3956,20 @@ func (ec *executionContext) marshalNProduct2ᚖgithubᚗcomᚋwundergraphᚋgrap
 		return graphql.Null
 	}
 	return ec._Product(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNReviewConnection2githubᚗcomᚋwundergraphᚋgraphqlᚑgoᚑtoolsᚋexamplesᚋfederationᚋreviewsᚋgraphᚋmodelᚐReviewConnection(ctx context.Context, sel ast.SelectionSet, v model.ReviewConnection) graphql.Marshaler {
+	return ec._ReviewConnection(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNReviewConnection2ᚖgithubᚗcomᚋwundergraphᚋgraphqlᚑgoᚑtoolsᚋexamplesᚋfederationᚋreviewsᚋgraphᚋmodelᚐReviewConnection(ctx context.Context, sel ast.SelectionSet, v *model.ReviewConnection) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._ReviewConnection(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNString2string(ctx context.Context, v interface{}) (string, error) {
@@ -4111,7 +4435,7 @@ func (ec *executionContext) marshalOReview2ᚖgithubᚗcomᚋwundergraphᚋgraph
 	if v == nil {
 		return graphql.Null
 	}
-	return ec._Review(ctx, sel, v)
+	return ec._ReviewEdge(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalOString2string(ctx context.Context, v interface{}) (string, error) {
