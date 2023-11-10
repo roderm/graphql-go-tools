@@ -461,6 +461,11 @@ func TestSchema_GetAllFieldArguments(t *testing.T) {
 				FieldName:     "inputFields",
 				ArgumentNames: []string{"includeDeprecated"},
 			},
+			{
+				TypeName:      "IDType",
+				FieldName:     "label",
+				ArgumentNames: []string{"lang"},
+			},
 		}
 		assert.Equal(t, expectedFieldArguments, fieldArguments)
 	})
@@ -502,6 +507,11 @@ func TestSchema_GetAllFieldArguments(t *testing.T) {
 				TypeName:      "MultiArgLevel1",
 				FieldName:     "multiArgLevel2",
 				ArgumentNames: []string{"lvl", "number"},
+			},
+			{
+				TypeName:      "IDType",
+				FieldName:     "label",
+				ArgumentNames: []string{"lang"},
 			},
 		}
 		assert.Equal(t, expectedFieldArguments, fieldArguments)
