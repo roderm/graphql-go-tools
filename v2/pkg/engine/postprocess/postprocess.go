@@ -1,6 +1,10 @@
 package postprocess
 
 import (
+	"encoding/json"
+	"fmt"
+	"slices"
+
 	"github.com/wundergraph/graphql-go-tools/v2/pkg/engine/plan"
 	"github.com/wundergraph/graphql-go-tools/v2/pkg/engine/resolve"
 )
@@ -16,6 +20,7 @@ type FetchTreeProcessor interface {
 
 type Processor struct {
 	disableExtractFetches bool
+	collectDataSourceInfo bool
 	resolveInputTemplates *resolveInputTemplates
 	dedupe                *deduplicateSingleFetches
 	processResponseTree   []ResponseTreeProcessor
@@ -25,11 +30,13 @@ type Processor struct {
 type processorOptions struct {
 	disableDeduplicateSingleFetches       bool
 	disableCreateConcreteSingleFetchTypes bool
+	disableOrderSequenceByDependencies    bool
 	disableMergeFields                    bool
 	disableResolveInputTemplates          bool
 	disableExtractFetches                 bool
 	disableCreateParallelNodes            bool
 	disableAddMissingNestedDependencies   bool
+	collectDataSourceInfo                 bool
 }
 
 type ProcessorOption func(*processorOptions)
@@ -46,6 +53,12 @@ func DisableCreateConcreteSingleFetchTypes() ProcessorOption {
 	}
 }
 
+func DisableOrderSequenceByDependencies() ProcessorOption {
+	return func(o *processorOptions) {
+		o.disableOrderSequenceByDependencies = true
+	}
+}
+
 func DisableMergeFields() ProcessorOption {
 	return func(o *processorOptions) {
 		o.disableMergeFields = true
@@ -56,6 +69,12 @@ func DisableResolveInputTemplates() ProcessorOption {
 	return func(o *processorOptions) {
 		o.disableResolveInputTemplates = true
 		o.disableCreateConcreteSingleFetchTypes = true
+	}
+}
+
+func CollectDataSourceInfo() ProcessorOption {
+	return func(o *processorOptions) {
+		o.collectDataSourceInfo = true
 	}
 }
 
@@ -83,6 +102,7 @@ func NewProcessor(options ...ProcessorOption) *Processor {
 		o(opts)
 	}
 	return &Processor{
+		collectDataSourceInfo: opts.collectDataSourceInfo,
 		disableExtractFetches: opts.disableExtractFetches,
 		resolveInputTemplates: &resolveInputTemplates{
 			disable: opts.disableResolveInputTemplates,
@@ -100,7 +120,7 @@ func NewProcessor(options ...ProcessorOption) *Processor {
 				disable: opts.disableCreateConcreteSingleFetchTypes,
 			},
 			&orderSequenceByDependencies{
-				disable: opts.disableCreateConcreteSingleFetchTypes,
+				disable: opts.disableOrderSequenceByDependencies,
 			},
 			&createParallelNodes{
 				disable: opts.disableCreateParallelNodes,
@@ -131,6 +151,7 @@ func (p *Processor) Process(pre plan.Plan) plan.Plan {
 			p.processResponseTree[i].ProcessSubscription(t.Response.Response.Data)
 		}
 		p.createFetchTree(t.Response.Response)
+		p.appendTriggerToFetchTree(t.Response)
 		p.dedupe.ProcessFetchTree(t.Response.Response.Fetches)
 		p.resolveInputTemplates.ProcessFetchTree(t.Response.Response.Fetches)
 		p.resolveInputTemplates.ProcessTrigger(&t.Response.Trigger)
@@ -150,6 +171,18 @@ func (p *Processor) createFetchTree(res *resolve.GraphQLResponse) {
 	}
 	fetches := ex.extractFetches(res)
 	children := make([]*resolve.FetchTreeNode, len(fetches))
+
+	if p.collectDataSourceInfo {
+		var list = make([]resolve.DataSourceInfo, 0, len(fetches))
+		for _, fetch := range fetches {
+			dsInfo := fetch.Fetch.DataSourceInfo()
+			if !slices.Contains(list, dsInfo) {
+				list = append(list, dsInfo)
+			}
+		}
+		res.DataSources = list
+	}
+
 	for i := range fetches {
 		children[i] = &resolve.FetchTreeNode{
 			Kind: resolve.FetchTreeNodeKindSingle,
@@ -159,5 +192,48 @@ func (p *Processor) createFetchTree(res *resolve.GraphQLResponse) {
 	res.Fetches = &resolve.FetchTreeNode{
 		Kind:       resolve.FetchTreeNodeKindSequence,
 		ChildNodes: children,
+	}
+}
+
+func (p *Processor) appendTriggerToFetchTree(res *resolve.GraphQLSubscription) {
+	var input struct {
+		Body struct {
+			Query string `json:"query"`
+		} `json:"body"`
+	}
+
+	err := json.Unmarshal(res.Trigger.Input, &input)
+	if err != nil {
+		fmt.Println("error decoding subscription input", err)
+		return
+	}
+
+	rootData := res.Response.Data
+	if rootData == nil || len(rootData.Fields) == 0 {
+		return
+	}
+
+	info := rootData.Fields[0].Info
+	if info == nil {
+		return
+	}
+
+	res.Response.Fetches.Trigger = &resolve.FetchTreeNode{
+		Kind: resolve.FetchTreeNodeKindTrigger,
+		Item: &resolve.FetchItem{
+			Fetch: &resolve.SingleFetch{
+				FetchDependencies: resolve.FetchDependencies{
+					FetchID: info.FetchID,
+				},
+				Info: &resolve.FetchInfo{
+					DataSourceID:   info.Source.IDs[0],
+					DataSourceName: info.Source.Names[0],
+					QueryPlan: &resolve.QueryPlan{
+						Query: input.Body.Query,
+					},
+				},
+			},
+			ResponsePath: info.Name,
+		},
 	}
 }

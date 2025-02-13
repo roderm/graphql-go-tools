@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/cespare/xxhash/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/wundergraph/graphql-go-tools/v2/pkg/ast"
@@ -285,7 +284,7 @@ func TestLoader_LoadGraphQLResponseData(t *testing.T) {
 	ctx := &Context{
 		ctx: context.Background(),
 	}
-	resolvable := &Resolvable{}
+	resolvable := NewResolvable(ResolvableOptions{})
 	loader := &Loader{}
 	err := resolvable.Init(ctx, nil, ast.OperationTypeQuery)
 	assert.NoError(t, err)
@@ -296,6 +295,182 @@ func TestLoader_LoadGraphQLResponseData(t *testing.T) {
 	assert.NoError(t, err)
 	expected := `{"errors":[],"data":{"topProducts":[{"name":"Table","__typename":"Product","upc":"1","reviews":[{"body":"Love Table!","author":{"__typename":"User","id":"1","name":"user-1"}},{"body":"Prefer other Table.","author":{"__typename":"User","id":"2","name":"user-2"}}],"stock":8},{"name":"Couch","__typename":"Product","upc":"2","reviews":[{"body":"Couch Too expensive.","author":{"__typename":"User","id":"1","name":"user-1"}}],"stock":2},{"name":"Chair","__typename":"Product","upc":"3","reviews":[{"body":"Chair Could be better.","author":{"__typename":"User","id":"2","name":"user-2"}}],"stock":5}]}}`
 	assert.Equal(t, expected, out)
+}
+
+func TestLoader_MergeErrorDifferingTypes(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	names := mockedDS(t, ctrl,
+		`{}`,
+		`{"data":{"users":[{"name":"user-1"},{"name":"user-2"}]}}`)
+
+	secondNames := mockedDS(t, ctrl,
+		`{}`,
+		`{"data":{"users":[{"name":"user-3"},{"name":123}]}}`)
+
+	response := &GraphQLResponse{
+		Fetches: Sequence(
+			Single(&SingleFetch{
+				InputTemplate: InputTemplate{
+					Segments: []TemplateSegment{
+						{
+							Data:        []byte(`{}`),
+							SegmentType: StaticSegmentType,
+						},
+					},
+				},
+				FetchConfiguration: FetchConfiguration{
+					DataSource: names,
+					PostProcessing: PostProcessingConfiguration{
+						SelectResponseDataPath: []string{"data"},
+					},
+				},
+				Info: &FetchInfo{
+					DataSourceName: "names",
+				},
+			}),
+			Single(&SingleFetch{
+				InputTemplate: InputTemplate{
+					Segments: []TemplateSegment{
+						{
+							Data:        []byte(`{}`),
+							SegmentType: StaticSegmentType,
+						},
+					},
+				},
+				FetchConfiguration: FetchConfiguration{
+					DataSource: secondNames,
+					PostProcessing: PostProcessingConfiguration{
+						SelectResponseDataPath: []string{"data"},
+					},
+				},
+				Info: &FetchInfo{
+					DataSourceName: "secondNames",
+				},
+			}),
+		),
+		Data: &Object{
+			Fields: []*Field{
+				{
+					Name: []byte("users"),
+					Value: &Array{
+						Path: []string{"users"},
+						Item: &Object{
+							Fields: []*Field{
+								{
+									Name: []byte("name"),
+									Value: &String{
+										Path: []string{"name"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	ctx := &Context{
+		ctx: context.Background(),
+	}
+	resolvable := NewResolvable(ResolvableOptions{})
+	loader := &Loader{}
+	err := resolvable.Init(ctx, nil, ast.OperationTypeQuery)
+	assert.NoError(t, err)
+	err = loader.LoadGraphQLResponseData(ctx, response, resolvable)
+	assert.Error(t, err)
+	assert.Equal(t, "unable to merge results from subgraph secondNames: differing types", err.Error())
+}
+
+func TestLoader_MergeErrorDifferingArrayLength(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	names := mockedDS(t, ctrl,
+		`{}`,
+		`{"data":{"users":[{"name":"user-1"},{"name":"user-2"}]}}`)
+
+	ages := mockedDS(t, ctrl,
+		`{}`,
+		`{"data":{"users":[{"age":30},{"age":40},{"age":50}]}}`)
+
+	response := &GraphQLResponse{
+		Fetches: Sequence(
+			Single(&SingleFetch{
+				InputTemplate: InputTemplate{
+					Segments: []TemplateSegment{
+						{
+							Data:        []byte(`{}`),
+							SegmentType: StaticSegmentType,
+						},
+					},
+				},
+				FetchConfiguration: FetchConfiguration{
+					DataSource: names,
+					PostProcessing: PostProcessingConfiguration{
+						SelectResponseDataPath: []string{"data"},
+					},
+				},
+				Info: &FetchInfo{
+					DataSourceName: "names",
+				},
+			}),
+			Single(&SingleFetch{
+				InputTemplate: InputTemplate{
+					Segments: []TemplateSegment{
+						{
+							Data:        []byte(`{}`),
+							SegmentType: StaticSegmentType,
+						},
+					},
+				},
+				FetchConfiguration: FetchConfiguration{
+					DataSource: ages,
+					PostProcessing: PostProcessingConfiguration{
+						SelectResponseDataPath: []string{"data"},
+					},
+				},
+				Info: &FetchInfo{
+					DataSourceName: "ages",
+				},
+			}),
+		),
+		Data: &Object{
+			Fields: []*Field{
+				{
+					Name: []byte("users"),
+					Value: &Array{
+						Path: []string{"users"},
+						Item: &Object{
+							Fields: []*Field{
+								{
+									Name: []byte("name"),
+									Value: &String{
+										Path: []string{"name"},
+									},
+								},
+								{
+									Name: []byte("age"),
+									Value: &Integer{
+										Path: []string{"age"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	ctx := &Context{
+		ctx: context.Background(),
+	}
+	resolvable := NewResolvable(ResolvableOptions{})
+	loader := &Loader{}
+	err := resolvable.Init(ctx, nil, ast.OperationTypeQuery)
+	assert.NoError(t, err)
+	err = loader.LoadGraphQLResponseData(ctx, response, resolvable)
+	assert.Error(t, err)
+	assert.Equal(t, "unable to merge results from subgraph ages: differing array lengths", err.Error())
 }
 
 func TestLoader_LoadGraphQLResponseDataWithExtensions(t *testing.T) {
@@ -571,7 +746,7 @@ func TestLoader_LoadGraphQLResponseDataWithExtensions(t *testing.T) {
 		ctx:        context.Background(),
 		Extensions: []byte(`{"foo":"bar"}`),
 	}
-	resolvable := &Resolvable{}
+	resolvable := NewResolvable(ResolvableOptions{})
 	loader := &Loader{}
 	err := resolvable.Init(ctx, nil, ast.OperationTypeQuery)
 	assert.NoError(t, err)
@@ -846,9 +1021,7 @@ func BenchmarkLoader_LoadGraphQLResponseData(b *testing.B) {
 	ctx := &Context{
 		ctx: context.Background(),
 	}
-	resolvable := &Resolvable{
-		xxh: xxhash.New(),
-	}
+	resolvable := NewResolvable(ResolvableOptions{})
 	loader := &Loader{}
 	expected := `{"errors":[],"data":{"topProducts":[{"name":"Table","__typename":"Product","upc":"1","reviews":[{"body":"Love Table!","author":{"__typename":"User","id":"1","name":"user-1"}},{"body":"Prefer other Table.","author":{"__typename":"User","id":"2","name":"user-2"}}],"stock":8},{"name":"Couch","__typename":"Product","upc":"2","reviews":[{"body":"Couch Too expensive.","author":{"__typename":"User","id":"1","name":"user-1"}}],"stock":2},{"name":"Chair","__typename":"Product","upc":"3","reviews":[{"body":"Chair Could be better.","author":{"__typename":"User","id":"2","name":"user-2"}}],"stock":5}]}}`
 	b.SetBytes(int64(len(expected)))
@@ -949,7 +1122,7 @@ func TestLoader_RedactHeaders(t *testing.T) {
 			Enable: true,
 		},
 	}
-	resolvable := NewResolvable()
+	resolvable := NewResolvable(ResolvableOptions{})
 	loader := &Loader{}
 
 	err := resolvable.Init(ctx, nil, ast.OperationTypeQuery)

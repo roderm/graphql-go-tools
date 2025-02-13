@@ -17,6 +17,8 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wundergraph/astjson"
+
 	"github.com/wundergraph/graphql-go-tools/v2/pkg/ast"
 
 	"github.com/wundergraph/graphql-go-tools/v2/pkg/engine/datasource/httpclient"
@@ -84,13 +86,19 @@ func (t *TestErrorWriter) WriteError(ctx *Context, err error, res *GraphQLRespon
 	}
 }
 
+var multipartSubHeartbeatInterval = 15 * time.Millisecond
+
+const testMaxSubscriptionWorkers = 1
+
 func newResolver(ctx context.Context) *Resolver {
 	return New(ctx, ResolverOptions{
-		MaxConcurrency:               1024,
-		Debug:                        false,
-		PropagateSubgraphErrors:      true,
-		PropagateSubgraphStatusCodes: true,
-		AsyncErrorWriter:             &TestErrorWriter{},
+		MaxConcurrency:                1024,
+		Debug:                         false,
+		PropagateSubgraphErrors:       true,
+		PropagateSubgraphStatusCodes:  true,
+		AsyncErrorWriter:              &TestErrorWriter{},
+		MultipartSubHeartbeatInterval: multipartSubHeartbeatInterval,
+		MaxSubscriptionWorkers:        testMaxSubscriptionWorkers,
 	})
 }
 
@@ -343,510 +351,6 @@ func TestResolver_ResolveNode(t *testing.T) {
 			},
 		}, Context{ctx: context.Background()}, `{"data":{"user":{"id":"1","name":"Jens","registered":true,"pet":{"name":"Barky","kind":"Dog"}}}}`
 	}))
-	t.Run("skip single field should resolve to empty response", testFn(false, func(t *testing.T, ctrl *gomock.Controller) (response *GraphQLResponse, ctx Context, expectedOutput string) {
-		return &GraphQLResponse{
-			Fetches: Single(&SingleFetch{
-				FetchConfiguration: FetchConfiguration{DataSource: FakeDataSource(`{"id":"1","name":"Jens","registered":true,"pet":{"name":"Barky","kind":"Dog"}}`)},
-			}),
-			Data: &Object{
-				Fields: []*Field{
-					{
-						Name: []byte("user"),
-						Value: &Object{
-							Fields: []*Field{
-								{
-									Name: []byte("id"),
-									Value: &String{
-										Path: []string{"id"},
-									},
-									SkipDirectiveDefined: true,
-									SkipVariableName:     "skip",
-								},
-							},
-						},
-					},
-				},
-			},
-		}, Context{ctx: context.Background(), Variables: []byte(`{"skip":true}`)}, `{"data":{"user":{}}}`
-	}))
-	t.Run("skip multiple fields should resolve to empty response", testFn(false, func(t *testing.T, ctrl *gomock.Controller) (response *GraphQLResponse, ctx Context, expectedOutput string) {
-		return &GraphQLResponse{
-			Fetches: Single(&SingleFetch{
-				FetchConfiguration: FetchConfiguration{DataSource: FakeDataSource(`{"id":"1","name":"Jens","registered":true,"pet":{"name":"Barky","kind":"Dog"}}`)},
-			}),
-			Data: &Object{
-				Fields: []*Field{
-					{
-						Name: []byte("user"),
-						Value: &Object{
-							Fields: []*Field{
-								{
-									Name: []byte("id"),
-									Value: &String{
-										Path: []string{"id"},
-									},
-									SkipDirectiveDefined: true,
-									SkipVariableName:     "skip",
-								},
-								{
-									Name: []byte("name"),
-									Value: &String{
-										Path: []string{"name"},
-									},
-									SkipDirectiveDefined: true,
-									SkipVariableName:     "skip",
-								},
-							},
-						},
-					},
-				},
-			},
-		}, Context{ctx: context.Background(), Variables: []byte(`{"skip":true}`)}, `{"data":{"user":{}}}`
-	}))
-	t.Run("skip __typename field be possible", testFn(false, func(t *testing.T, ctrl *gomock.Controller) (response *GraphQLResponse, ctx Context, expectedOutput string) {
-		return &GraphQLResponse{
-			Fetches: Single(&SingleFetch{
-				FetchConfiguration: FetchConfiguration{DataSource: FakeDataSource(`{"id":"1","name":"Jens","registered":true,"pet":{"name":"Barky","kind":"Dog"}}`)},
-			}),
-			Data: &Object{
-				Fields: []*Field{
-					{
-						Name: []byte("user"),
-						Value: &Object{
-							Fields: []*Field{
-								{
-									Name: []byte("id"),
-									Value: &String{
-										Path: []string{"id"},
-									},
-								},
-								{
-									Name: []byte("__typename"),
-									Value: &String{
-										Path: []string{"__typename"},
-									},
-									SkipDirectiveDefined: true,
-									SkipVariableName:     "skip",
-								},
-							},
-						},
-					},
-				},
-			},
-		}, Context{ctx: context.Background(), Variables: []byte(`{"skip":true}`)}, `{"data":{"user":{"id":"1"}}}`
-	}))
-	t.Run("include __typename field be possible", testFn(false, func(t *testing.T, ctrl *gomock.Controller) (response *GraphQLResponse, ctx Context, expectedOutput string) {
-		return &GraphQLResponse{
-			Fetches: Single(&SingleFetch{
-				FetchConfiguration: FetchConfiguration{DataSource: FakeDataSource(`{"id":"1","name":"Jens","registered":true,"pet":{"name":"Barky","kind":"Dog"},"__typename":"User"}`)},
-			}),
-			Data: &Object{
-				Fields: []*Field{
-					{
-						Name: []byte("user"),
-						Value: &Object{
-							Fields: []*Field{
-								{
-									Name: []byte("id"),
-									Value: &String{
-										Path: []string{"id"},
-									},
-								},
-								{
-									Name: []byte("__typename"),
-									Value: &String{
-										Path: []string{"__typename"},
-									},
-									IncludeDirectiveDefined: true,
-									IncludeVariableName:     "include",
-								},
-							},
-						},
-					},
-				},
-			},
-		}, Context{ctx: context.Background(), Variables: []byte(`{"include":true}`)}, `{"data":{"user":{"id":"1","__typename":"User"}}}`
-	}))
-	t.Run("include __typename field with false value", testFn(false, func(t *testing.T, ctrl *gomock.Controller) (response *GraphQLResponse, ctx Context, expectedOutput string) {
-		return &GraphQLResponse{
-			Fetches: Single(&SingleFetch{
-				FetchConfiguration: FetchConfiguration{DataSource: FakeDataSource(`{"id":"1","name":"Jens","registered":true,"pet":{"name":"Barky","kind":"Dog"},"__typename":"User"}`)},
-			}),
-			Data: &Object{
-				Fields: []*Field{
-					{
-						Name: []byte("user"),
-						Value: &Object{
-							Fields: []*Field{
-								{
-									Name: []byte("id"),
-									Value: &String{
-										Path: []string{"id"},
-									},
-								},
-								{
-									Name: []byte("__typename"),
-									Value: &String{
-										Path: []string{"__typename"},
-									},
-									IncludeDirectiveDefined: true,
-									IncludeVariableName:     "include",
-								},
-							},
-						},
-					},
-				},
-			},
-		}, Context{ctx: context.Background(), Variables: []byte(`{"include":false}`)}, `{"data":{"user":{"id":"1"}}}`
-	}))
-	t.Run("skip field when skip variable is true", testFn(false, func(t *testing.T, ctrl *gomock.Controller) (response *GraphQLResponse, ctx Context, expectedOutput string) {
-		return &GraphQLResponse{
-			Fetches: Single(&SingleFetch{
-				FetchConfiguration: FetchConfiguration{DataSource: FakeDataSource(`{"id":"1","name":"Jens","registered":true,"pet":{"name":"Barky","kind":"Dog"}}`)},
-			}),
-			Data: &Object{
-				Fields: []*Field{
-					{
-						Name: []byte("user"),
-						Value: &Object{
-							Fields: []*Field{
-								{
-									Name: []byte("id"),
-									Value: &String{
-										Path: []string{"id"},
-									},
-								},
-								{
-									Name: []byte("name"),
-									Value: &String{
-										Path: []string{"name"},
-									},
-								},
-								{
-									Name: []byte("registered"),
-									Value: &Boolean{
-										Path: []string{"registered"},
-									},
-								},
-								{
-									Name: []byte("pet"),
-									Value: &Object{
-										Path: []string{"pet"},
-										Fields: []*Field{
-											{
-												Name: []byte("name"),
-												Value: &String{
-													Path: []string{"name"},
-												},
-											},
-											{
-												Name: []byte("kind"),
-												Value: &String{
-													Path: []string{"kind"},
-												},
-												SkipDirectiveDefined: true,
-												SkipVariableName:     "skip",
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		}, Context{ctx: context.Background(), Variables: []byte(`{"skip":true}`)}, `{"data":{"user":{"id":"1","name":"Jens","registered":true,"pet":{"name":"Barky"}}}}`
-	}))
-	t.Run("don't skip field when skip variable is false", testFn(false, func(t *testing.T, ctrl *gomock.Controller) (response *GraphQLResponse, ctx Context, expectedOutput string) {
-		return &GraphQLResponse{
-			Fetches: Single(&SingleFetch{
-				FetchConfiguration: FetchConfiguration{DataSource: FakeDataSource(`{"id":"1","name":"Jens","registered":true,"pet":{"name":"Barky","kind":"Dog"}}`)},
-			}),
-			Data: &Object{
-				Fields: []*Field{
-					{
-						Name: []byte("user"),
-						Value: &Object{
-							Fields: []*Field{
-								{
-									Name: []byte("id"),
-									Value: &String{
-										Path: []string{"id"},
-									},
-								},
-								{
-									Name: []byte("name"),
-									Value: &String{
-										Path: []string{"name"},
-									},
-								},
-								{
-									Name: []byte("registered"),
-									Value: &Boolean{
-										Path: []string{"registered"},
-									},
-								},
-								{
-									Name: []byte("pet"),
-									Value: &Object{
-										Path: []string{"pet"},
-										Fields: []*Field{
-											{
-												Name: []byte("name"),
-												Value: &String{
-													Path: []string{"name"},
-												},
-											},
-											{
-												Name: []byte("kind"),
-												Value: &String{
-													Path: []string{"kind"},
-												},
-												SkipDirectiveDefined: true,
-												SkipVariableName:     "skip",
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		}, Context{ctx: context.Background(), Variables: []byte(`{"skip":false}`)}, `{"data":{"user":{"id":"1","name":"Jens","registered":true,"pet":{"name":"Barky","kind":"Dog"}}}}`
-	}))
-	t.Run("don't skip field when skip variable is missing", testFn(false, func(t *testing.T, ctrl *gomock.Controller) (response *GraphQLResponse, ctx Context, expectedOutput string) {
-		return &GraphQLResponse{
-			Fetches: Single(&SingleFetch{
-				FetchConfiguration: FetchConfiguration{DataSource: FakeDataSource(`{"id":"1","name":"Jens","registered":true,"pet":{"name":"Barky","kind":"Dog"}}`)},
-			}),
-			Data: &Object{
-				Fields: []*Field{
-					{
-						Name: []byte("user"),
-						Value: &Object{
-							Fields: []*Field{
-								{
-									Name: []byte("id"),
-									Value: &String{
-										Path: []string{"id"},
-									},
-								},
-								{
-									Name: []byte("name"),
-									Value: &String{
-										Path: []string{"name"},
-									},
-								},
-								{
-									Name: []byte("registered"),
-									Value: &Boolean{
-										Path: []string{"registered"},
-									},
-								},
-								{
-									Name: []byte("pet"),
-									Value: &Object{
-										Path: []string{"pet"},
-										Fields: []*Field{
-											{
-												Name: []byte("name"),
-												Value: &String{
-													Path: []string{"name"},
-												},
-											},
-											{
-												Name: []byte("kind"),
-												Value: &String{
-													Path: []string{"kind"},
-												},
-												SkipDirectiveDefined: true,
-												SkipVariableName:     "skip",
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		}, Context{ctx: context.Background(), Variables: []byte(`{}`)}, `{"data":{"user":{"id":"1","name":"Jens","registered":true,"pet":{"name":"Barky","kind":"Dog"}}}}`
-	}))
-	t.Run("include field when include variable is true", testFn(false, func(t *testing.T, ctrl *gomock.Controller) (response *GraphQLResponse, ctx Context, expectedOutput string) {
-		return &GraphQLResponse{
-			Fetches: Single(&SingleFetch{
-				FetchConfiguration: FetchConfiguration{DataSource: FakeDataSource(`{"id":"1","name":"Jens","registered":true,"pet":{"name":"Barky","kind":"Dog"}}`)},
-			}),
-			Data: &Object{
-				Fields: []*Field{
-					{
-						Name: []byte("user"),
-						Value: &Object{
-							Fields: []*Field{
-								{
-									Name: []byte("id"),
-									Value: &String{
-										Path: []string{"id"},
-									},
-								},
-								{
-									Name: []byte("name"),
-									Value: &String{
-										Path: []string{"name"},
-									},
-								},
-								{
-									Name: []byte("registered"),
-									Value: &Boolean{
-										Path: []string{"registered"},
-									},
-								},
-								{
-									Name: []byte("pet"),
-									Value: &Object{
-										Path: []string{"pet"},
-										Fields: []*Field{
-											{
-												Name: []byte("name"),
-												Value: &String{
-													Path: []string{"name"},
-												},
-											},
-											{
-												Name: []byte("kind"),
-												Value: &String{
-													Path: []string{"kind"},
-												},
-												IncludeDirectiveDefined: true,
-												IncludeVariableName:     "include",
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		}, Context{ctx: context.Background(), Variables: []byte(`{"include":true}`)}, `{"data":{"user":{"id":"1","name":"Jens","registered":true,"pet":{"name":"Barky","kind":"Dog"}}}}`
-	}))
-	t.Run("exclude field when include variable is false", testFn(false, func(t *testing.T, ctrl *gomock.Controller) (response *GraphQLResponse, ctx Context, expectedOutput string) {
-		return &GraphQLResponse{
-			Fetches: Single(&SingleFetch{
-				FetchConfiguration: FetchConfiguration{DataSource: FakeDataSource(`{"id":"1","name":"Jens","registered":true,"pet":{"name":"Barky","kind":"Dog"}}`)},
-			}),
-			Data: &Object{
-				Fields: []*Field{
-					{
-						Name: []byte("user"),
-						Value: &Object{
-							Fields: []*Field{
-								{
-									Name: []byte("id"),
-									Value: &String{
-										Path: []string{"id"},
-									},
-								},
-								{
-									Name: []byte("name"),
-									Value: &String{
-										Path: []string{"name"},
-									},
-								},
-								{
-									Name: []byte("registered"),
-									Value: &Boolean{
-										Path: []string{"registered"},
-									},
-								},
-								{
-									Name: []byte("pet"),
-									Value: &Object{
-										Path: []string{"pet"},
-										Fields: []*Field{
-											{
-												Name: []byte("name"),
-												Value: &String{
-													Path: []string{"name"},
-												},
-											},
-											{
-												Name: []byte("kind"),
-												Value: &String{
-													Path: []string{"kind"},
-												},
-												IncludeDirectiveDefined: true,
-												IncludeVariableName:     "include",
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		}, Context{ctx: context.Background(), Variables: []byte(`{"include":false}`)}, `{"data":{"user":{"id":"1","name":"Jens","registered":true,"pet":{"name":"Barky"}}}}`
-	}))
-	t.Run("exclude field when include variable is missing", testFn(false, func(t *testing.T, ctrl *gomock.Controller) (response *GraphQLResponse, ctx Context, expectedOutput string) {
-		return &GraphQLResponse{
-			Fetches: Single(&SingleFetch{
-				FetchConfiguration: FetchConfiguration{DataSource: FakeDataSource(`{"id":"1","name":"Jens","registered":true,"pet":{"name":"Barky","kind":"Dog"}}`)},
-			}),
-			Data: &Object{
-				Fields: []*Field{
-					{
-						Name: []byte("user"),
-						Value: &Object{
-							Fields: []*Field{
-								{
-									Name: []byte("id"),
-									Value: &String{
-										Path: []string{"id"},
-									},
-								},
-								{
-									Name: []byte("name"),
-									Value: &String{
-										Path: []string{"name"},
-									},
-								},
-								{
-									Name: []byte("registered"),
-									Value: &Boolean{
-										Path: []string{"registered"},
-									},
-								},
-								{
-									Name: []byte("pet"),
-									Value: &Object{
-										Path: []string{"pet"},
-										Fields: []*Field{
-											{
-												Name: []byte("name"),
-												Value: &String{
-													Path: []string{"name"},
-												},
-											},
-											{
-												Name: []byte("kind"),
-												Value: &String{
-													Path: []string{"kind"},
-												},
-												IncludeDirectiveDefined: true,
-												IncludeVariableName:     "include",
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		}, Context{ctx: context.Background(), Variables: []byte(`{}`)}, `{"data":{"user":{"id":"1","name":"Jens","registered":true,"pet":{"name":"Barky"}}}}`
-	}))
 	t.Run("fetch with context variable resolver", testFn(true, func(t *testing.T, ctrl *gomock.Controller) (response *GraphQLResponse, ctx Context, expectedOutput string) {
 		mockDataSource := NewMockDataSource(ctrl)
 		mockDataSource.EXPECT().
@@ -894,7 +398,7 @@ func TestResolver_ResolveNode(t *testing.T) {
 					},
 				},
 			},
-		}, Context{ctx: context.Background(), Variables: []byte(`{"id":1}`)}, `{"data":{"name":"Jens"}}`
+		}, Context{ctx: context.Background(), Variables: astjson.MustParseBytes([]byte(`{"id":1}`))}, `{"data":{"name":"Jens"}}`
 	}))
 	t.Run("resolve array of strings", testFn(false, func(t *testing.T, ctrl *gomock.Controller) (response *GraphQLResponse, ctx Context, expectedOutput string) {
 		return &GraphQLResponse{
@@ -1593,6 +1097,55 @@ func testFn(fn func(t *testing.T, ctrl *gomock.Controller) (node *GraphQLRespons
 	}
 }
 
+type apolloCompatibilityOptions struct {
+	valueCompletion     bool
+	suppressFetchErrors bool
+}
+
+func testFnApolloCompatibility(fn func(t *testing.T, ctrl *gomock.Controller) (node *GraphQLResponse, ctx Context, expectedOutput string), options *apolloCompatibilityOptions) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Helper()
+
+		ctrl := gomock.NewController(t)
+		rCtx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		resolvableOptions := ResolvableOptions{
+			ApolloCompatibilityValueCompletionInExtensions: true,
+			ApolloCompatibilitySuppressFetchErrors:         false,
+		}
+		if options != nil {
+			resolvableOptions.ApolloCompatibilityValueCompletionInExtensions = options.valueCompletion
+			resolvableOptions.ApolloCompatibilitySuppressFetchErrors = options.suppressFetchErrors
+		}
+		r := New(rCtx, ResolverOptions{
+			MaxConcurrency:               1024,
+			Debug:                        false,
+			PropagateSubgraphErrors:      true,
+			SubgraphErrorPropagationMode: SubgraphErrorPropagationModePassThrough,
+			PropagateSubgraphStatusCodes: true,
+			AsyncErrorWriter:             &TestErrorWriter{},
+			ResolvableOptions:            resolvableOptions,
+		})
+		node, ctx, expectedOutput := fn(t, ctrl)
+
+		if node.Info == nil {
+			node.Info = &GraphQLResponseInfo{
+				OperationType: ast.OperationTypeQuery,
+			}
+		}
+
+		if t.Skipped() {
+			return
+		}
+
+		buf := &bytes.Buffer{}
+		_, err := r.ResolveGraphQLResponse(&ctx, node, nil, buf)
+		assert.NoError(t, err)
+		assert.Equal(t, expectedOutput, buf.String())
+		ctrl.Finish()
+	}
+}
+
 func testFnSubgraphErrorsPassthrough(fn func(t *testing.T, ctrl *gomock.Controller) (node *GraphQLResponse, ctx Context, expectedOutput string)) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Helper()
@@ -1606,6 +1159,114 @@ func testFnSubgraphErrorsPassthrough(fn func(t *testing.T, ctrl *gomock.Controll
 			PropagateSubgraphErrors:      true,
 			PropagateSubgraphStatusCodes: true,
 			SubgraphErrorPropagationMode: SubgraphErrorPropagationModePassThrough,
+		})
+		node, ctx, expectedOutput := fn(t, ctrl)
+
+		if node.Info == nil {
+			node.Info = &GraphQLResponseInfo{
+				OperationType: ast.OperationTypeQuery,
+			}
+		}
+
+		if t.Skipped() {
+			return
+		}
+
+		buf := &bytes.Buffer{}
+		_, err := r.ResolveGraphQLResponse(&ctx, node, nil, buf)
+		assert.NoError(t, err)
+		assert.Equal(t, expectedOutput, buf.String())
+		ctrl.Finish()
+	}
+}
+
+func testFnSubgraphErrorsWithExtensionFieldCode(fn func(t *testing.T, ctrl *gomock.Controller) (node *GraphQLResponse, ctx Context, expectedOutput string)) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Helper()
+
+		ctrl := gomock.NewController(t)
+		rCtx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		r := New(rCtx, ResolverOptions{
+			MaxConcurrency:               1024,
+			Debug:                        false,
+			PropagateSubgraphErrors:      true,
+			PropagateSubgraphStatusCodes: true,
+			AllowedErrorExtensionFields:  []string{"code"},
+			SubgraphErrorPropagationMode: SubgraphErrorPropagationModePassThrough,
+		})
+		node, ctx, expectedOutput := fn(t, ctrl)
+
+		if node.Info == nil {
+			node.Info = &GraphQLResponseInfo{
+				OperationType: ast.OperationTypeQuery,
+			}
+		}
+
+		if t.Skipped() {
+			return
+		}
+
+		buf := &bytes.Buffer{}
+		_, err := r.ResolveGraphQLResponse(&ctx, node, nil, buf)
+		assert.NoError(t, err)
+		assert.Equal(t, expectedOutput, buf.String())
+		ctrl.Finish()
+	}
+}
+
+func testFnSubgraphErrorsWithExtensionFieldServiceName(fn func(t *testing.T, ctrl *gomock.Controller) (node *GraphQLResponse, ctx Context, expectedOutput string)) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Helper()
+
+		ctrl := gomock.NewController(t)
+		rCtx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		r := New(rCtx, ResolverOptions{
+			MaxConcurrency:                     1024,
+			Debug:                              false,
+			PropagateSubgraphErrors:            true,
+			PropagateSubgraphStatusCodes:       true,
+			AttachServiceNameToErrorExtensions: true,
+			AllowedErrorExtensionFields:        []string{"code"},
+			DefaultErrorExtensionCode:          "DOWNSTREAM_SERVICE_ERROR",
+			SubgraphErrorPropagationMode:       SubgraphErrorPropagationModePassThrough,
+		})
+		node, ctx, expectedOutput := fn(t, ctrl)
+
+		if node.Info == nil {
+			node.Info = &GraphQLResponseInfo{
+				OperationType: ast.OperationTypeQuery,
+			}
+		}
+
+		if t.Skipped() {
+			return
+		}
+
+		buf := &bytes.Buffer{}
+		_, err := r.ResolveGraphQLResponse(&ctx, node, nil, buf)
+		assert.NoError(t, err)
+		assert.Equal(t, expectedOutput, buf.String())
+		ctrl.Finish()
+	}
+}
+
+func testFnSubgraphErrorsWithExtensionDefaultCode(fn func(t *testing.T, ctrl *gomock.Controller) (node *GraphQLResponse, ctx Context, expectedOutput string)) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Helper()
+
+		ctrl := gomock.NewController(t)
+		rCtx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		r := New(rCtx, ResolverOptions{
+			MaxConcurrency:               1024,
+			Debug:                        false,
+			PropagateSubgraphErrors:      true,
+			PropagateSubgraphStatusCodes: true,
+			AllowedErrorExtensionFields:  []string{"code"},
+			SubgraphErrorPropagationMode: SubgraphErrorPropagationModePassThrough,
+			DefaultErrorExtensionCode:    "DOWNSTREAM_SERVICE_ERROR",
 		})
 		node, ctx, expectedOutput := fn(t, ctrl)
 
@@ -1704,6 +1365,35 @@ func testFnWithError(fn func(t *testing.T, ctrl *gomock.Controller) (node *Graph
 	}
 }
 
+func testFnSubgraphErrorsPassthroughAndOmitCustomFields(fn func(t *testing.T, ctrl *gomock.Controller) (node *GraphQLResponse, ctx Context, expectedOutput string)) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Helper()
+
+		ctrl := gomock.NewController(t)
+		rCtx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		r := New(rCtx, ResolverOptions{
+			MaxConcurrency:               1024,
+			Debug:                        false,
+			PropagateSubgraphErrors:      true,
+			PropagateSubgraphStatusCodes: true,
+			SubgraphErrorPropagationMode: SubgraphErrorPropagationModePassThrough,
+			AllowedErrorExtensionFields:  []string{"code"},
+		})
+		node, ctx, expectedOutput := fn(t, ctrl)
+
+		if t.Skipped() {
+			return
+		}
+
+		buf := &bytes.Buffer{}
+		_, err := r.ResolveGraphQLResponse(&ctx, node, nil, buf)
+		assert.NoError(t, err)
+		assert.Equal(t, expectedOutput, buf.String())
+		ctrl.Finish()
+	}
+}
+
 func TestResolver_ResolveGraphQLResponse(t *testing.T) {
 
 	t.Run("empty graphql response", testFn(func(t *testing.T, ctrl *gomock.Controller) (node *GraphQLResponse, ctx Context, expectedOutput string) {
@@ -1769,6 +1459,191 @@ func TestResolver_ResolveGraphQLResponse(t *testing.T) {
 			},
 		}, Context{ctx: context.Background()}, `{"data":{"user":{"id":1,"name":"Jannik","__typename":"User","aliased":"User","rewritten":"User"}}}`
 	}))
+	t.Run("__typename checks", testFn(func(t *testing.T, ctrl *gomock.Controller) (node *GraphQLResponse, ctx Context, expectedOutput string) {
+		return &GraphQLResponse{
+			Fetches: Single(&SingleFetch{
+				FetchConfiguration: FetchConfiguration{DataSource: FakeDataSource(`{"id":1,"name":"Jannik","__typename":"NotUser","rewritten":"User"}`)},
+			}),
+			Data: &Object{
+				Fields: []*Field{
+					{
+						Name: []byte("user"),
+						Value: &Object{
+							TypeName:      "User",
+							PossibleTypes: map[string]struct{}{"User": {}},
+							SourceName:    "Users",
+							Fields: []*Field{
+								{
+									Name: []byte("id"),
+									Value: &Integer{
+										Path:     []string{"id"},
+										Nullable: false,
+									},
+								},
+								{
+									Name: []byte("name"),
+									Value: &String{
+										Path:     []string{"name"},
+										Nullable: false,
+									},
+								},
+								{
+									Name: []byte("__typename"),
+									Value: &String{
+										Path:       []string{"__typename"},
+										Nullable:   false,
+										IsTypeName: true,
+									},
+								},
+								{
+									Name: []byte("aliased"),
+									Value: &String{
+										Path:       []string{"__typename"},
+										Nullable:   false,
+										IsTypeName: true,
+									},
+								},
+								{
+									Name: []byte("rewritten"),
+									Value: &String{
+										Path:       []string{"rewritten"},
+										Nullable:   false,
+										IsTypeName: true,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}, Context{ctx: context.Background()}, `{"errors":[{"message":"Subgraph 'Users' returned invalid value 'NotUser' for __typename field.","extensions":{"code":"INVALID_GRAPHQL"}}],"data":null}`
+	}))
+	t.Run("__typename checks apollo compatibility object", testFnApolloCompatibility(func(t *testing.T, ctrl *gomock.Controller) (node *GraphQLResponse, ctx Context, expectedOutput string) {
+		return &GraphQLResponse{
+			Fetches: Single(&SingleFetch{
+				FetchConfiguration: FetchConfiguration{DataSource: FakeDataSource(`{"data":{"user":{"id":1,"name":"Jannik","__typename":"NotUser","rewritten":"User"}}}`), PostProcessing: PostProcessingConfiguration{
+					SelectResponseDataPath: []string{"data"},
+				}},
+			}),
+			Data: &Object{
+				Fields: []*Field{
+					{
+						Name: []byte("user"),
+						Value: &Object{
+							Path:          []string{"user"},
+							TypeName:      "User",
+							PossibleTypes: map[string]struct{}{"User": {}},
+							SourceName:    "Users",
+							Fields: []*Field{
+								{
+									Name: []byte("id"),
+									Value: &Integer{
+										Path:     []string{"id"},
+										Nullable: false,
+									},
+								},
+								{
+									Name: []byte("name"),
+									Value: &String{
+										Path:     []string{"name"},
+										Nullable: false,
+									},
+								},
+								{
+									Name: []byte("__typename"),
+									Value: &String{
+										Path:       []string{"__typename"},
+										Nullable:   false,
+										IsTypeName: true,
+									},
+								},
+								{
+									Name: []byte("aliased"),
+									Value: &String{
+										Path:       []string{"__typename"},
+										Nullable:   false,
+										IsTypeName: true,
+									},
+								},
+								{
+									Name: []byte("rewritten"),
+									Value: &String{
+										Path:       []string{"rewritten"},
+										Nullable:   false,
+										IsTypeName: true,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}, Context{ctx: context.Background()}, `{"data":null,"extensions":{"valueCompletion":[{"message":"Invalid __typename found for object at field Query.user.","path":["user"],"extensions":{"code":"INVALID_GRAPHQL"}}]}}`
+	}, nil))
+	t.Run("__typename checks apollo compatibility array", testFnApolloCompatibility(func(t *testing.T, ctrl *gomock.Controller) (node *GraphQLResponse, ctx Context, expectedOutput string) {
+		return &GraphQLResponse{
+			Fetches: Single(&SingleFetch{
+				FetchConfiguration: FetchConfiguration{DataSource: FakeDataSource(`{"data":{"users":[{"id":1,"name":"Jannik","__typename":"NotUser","rewritten":"User"}]}}`), PostProcessing: PostProcessingConfiguration{
+					SelectResponseDataPath: []string{"data"},
+				}},
+			}),
+			Data: &Object{
+				Fields: []*Field{
+					{
+						Name: []byte("users"),
+						Value: &Array{
+							Path: []string{"users"},
+							Item: &Object{
+								TypeName:      "User",
+								PossibleTypes: map[string]struct{}{"User": {}},
+								SourceName:    "Users",
+								Fields: []*Field{
+									{
+										Name: []byte("id"),
+										Value: &Integer{
+											Path:     []string{"id"},
+											Nullable: false,
+										},
+									},
+									{
+										Name: []byte("name"),
+										Value: &String{
+											Path:     []string{"name"},
+											Nullable: false,
+										},
+									},
+									{
+										Name: []byte("__typename"),
+										Value: &String{
+											Path:       []string{"__typename"},
+											Nullable:   false,
+											IsTypeName: true,
+										},
+									},
+									{
+										Name: []byte("aliased"),
+										Value: &String{
+											Path:       []string{"__typename"},
+											Nullable:   false,
+											IsTypeName: true,
+										},
+									},
+									{
+										Name: []byte("rewritten"),
+										Value: &String{
+											Path:       []string{"rewritten"},
+											Nullable:   false,
+											IsTypeName: true,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}, Context{ctx: context.Background()}, `{"data":null,"extensions":{"valueCompletion":[{"message":"Invalid __typename found for object at array element of type User at index 0.","path":["users",0],"extensions":{"code":"INVALID_GRAPHQL"}}]}}`
+	}, nil))
 	t.Run("__typename with renaming", testFn(func(t *testing.T, ctrl *gomock.Controller) (node *GraphQLResponse, ctx Context, expectedOutput string) {
 		return &GraphQLResponse{
 				Fetches: Single(&SingleFetch{
@@ -1974,7 +1849,8 @@ func TestResolver_ResolveGraphQLResponse(t *testing.T) {
 					},
 				},
 				Info: &FetchInfo{
-					DataSourceID: "Users",
+					DataSourceID:   "Users",
+					DataSourceName: "Users",
 				},
 			}, "query"),
 			Data: &Object{
@@ -1991,7 +1867,7 @@ func TestResolver_ResolveGraphQLResponse(t *testing.T) {
 			},
 		}, Context{ctx: context.Background()}, `{"errors":[{"message":"Failed to fetch from Subgraph 'Users' at Path 'query'.","extensions":{"errors":[{"message":"errorMessage"}]}}],"data":{"name":null}}`
 	}))
-	t.Run("fetch with simple error in pass through Subgraph Error MOde", testFnSubgraphErrorsPassthrough(func(t *testing.T, ctrl *gomock.Controller) (node *GraphQLResponse, ctx Context, expectedOutput string) {
+	t.Run("fetch with simple error in pass through Subgraph Error Mode", testFnSubgraphErrorsPassthrough(func(t *testing.T, ctrl *gomock.Controller) (node *GraphQLResponse, ctx Context, expectedOutput string) {
 		mockDataSource := NewMockDataSource(ctrl)
 		mockDataSource.EXPECT().
 			Load(gomock.Any(), gomock.Any(), gomock.AssignableToTypeOf(&bytes.Buffer{})).
@@ -2009,7 +1885,8 @@ func TestResolver_ResolveGraphQLResponse(t *testing.T) {
 					},
 				},
 				Info: &FetchInfo{
-					DataSourceID: "Users",
+					DataSourceID:   "Users",
+					DataSourceName: "Users",
 				},
 			}),
 			Data: &Object{
@@ -2025,6 +1902,44 @@ func TestResolver_ResolveGraphQLResponse(t *testing.T) {
 				},
 			},
 		}, Context{ctx: context.Background()}, `{"errors":[{"message":"errorMessage"}],"data":{"name":null}}`
+	}))
+	t.Run("fetch with pass through mode and omit custom fields", testFnSubgraphErrorsPassthroughAndOmitCustomFields(func(t *testing.T, ctrl *gomock.Controller) (node *GraphQLResponse, ctx Context, expectedOutput string) {
+		mockDataSource := NewMockDataSource(ctrl)
+		mockDataSource.EXPECT().
+			Load(gomock.Any(), gomock.Any(), gomock.AssignableToTypeOf(&bytes.Buffer{})).
+			DoAndReturn(func(ctx context.Context, input []byte, w io.Writer) error {
+				_, err := w.Write([]byte(`{"errors":[{"message":"errorMessage","longMessage":"This is a long message","extensions":{"code":"GRAPHQL_VALIDATION_FAILED"}}],"data":{"name":null}}`))
+				return err
+			})
+		return &GraphQLResponse{
+			Info: &GraphQLResponseInfo{
+				OperationType: ast.OperationTypeQuery,
+			},
+			Fetches: SingleWithPath(&SingleFetch{
+				FetchConfiguration: FetchConfiguration{
+					DataSource: mockDataSource,
+					PostProcessing: PostProcessingConfiguration{
+						SelectResponseErrorsPath: []string{"errors"},
+					},
+				},
+				Info: &FetchInfo{
+					DataSourceID:   "Users",
+					DataSourceName: "Users",
+				},
+			}, "query"),
+			Data: &Object{
+				Nullable: false,
+				Fields: []*Field{
+					{
+						Name: []byte("name"),
+						Value: &String{
+							Path:     []string{"name"},
+							Nullable: true,
+						},
+					},
+				},
+			},
+		}, Context{ctx: context.Background()}, `{"errors":[{"message":"errorMessage","extensions":{"code":"GRAPHQL_VALIDATION_FAILED"}}],"data":{"name":null}}`
 	}))
 	t.Run("fetch with returned err (with DataSourceID)", testFn(func(t *testing.T, ctrl *gomock.Controller) (node *GraphQLResponse, ctx Context, expectedOutput string) {
 		mockDataSource := NewMockDataSource(ctrl)
@@ -2042,7 +1957,8 @@ func TestResolver_ResolveGraphQLResponse(t *testing.T) {
 					},
 				},
 				Info: &FetchInfo{
-					DataSourceID: "Users",
+					DataSourceID:   "Users",
+					DataSourceName: "Users",
 				},
 			}, "query"),
 			Data: &Object{
@@ -2105,7 +2021,8 @@ func TestResolver_ResolveGraphQLResponse(t *testing.T) {
 					},
 				},
 				Info: &FetchInfo{
-					DataSourceID: "Users",
+					DataSourceID:   "Users",
+					DataSourceName: "Users",
 				},
 			}, "query"),
 			Data: &Object{
@@ -2865,7 +2782,7 @@ func TestResolver_ResolveGraphQLResponse(t *testing.T) {
 					},
 				},
 			},
-		}, Context{ctx: context.Background(), Variables: []byte(`{"firstArg":"firstArgValue","thirdArg":123,"secondArg": true, "fourthArg": 12.34}`)}, `{"data":{"serviceOne":{"fieldOne":"fieldOneValue"},"serviceTwo":{"fieldTwo":"fieldTwoValue","serviceOneResponse":{"fieldOne":"fieldOneValue"}},"anotherServiceOne":{"fieldOne":"anotherFieldOneValue"},"secondServiceTwo":{"fieldTwo":"secondFieldTwoValue"},"reusingServiceOne":{"fieldOne":"reUsingFieldOneValue"}}}`
+		}, Context{ctx: context.Background(), Variables: astjson.MustParseBytes([]byte(`{"firstArg":"firstArgValue","thirdArg":123,"secondArg": true, "fourthArg": 12.34}`))}, `{"data":{"serviceOne":{"fieldOne":"fieldOneValue"},"serviceTwo":{"fieldTwo":"fieldTwoValue","serviceOneResponse":{"fieldOne":"fieldOneValue"}},"anotherServiceOne":{"fieldOne":"anotherFieldOneValue"},"secondServiceTwo":{"fieldTwo":"secondFieldTwoValue"},"reusingServiceOne":{"fieldOne":"reUsingFieldOneValue"}}}`
 	}))
 	t.Run("federation", func(t *testing.T) {
 		t.Run("simple", testFn(func(t *testing.T, ctrl *gomock.Controller) (node *GraphQLResponse, ctx Context, expectedOutput string) {
@@ -2887,6 +2804,7 @@ func TestResolver_ResolveGraphQLResponse(t *testing.T) {
 				Load(gomock.Any(), gomock.Any(), gomock.AssignableToTypeOf(&bytes.Buffer{})).
 				DoAndReturn(func(ctx context.Context, input []byte, w io.Writer) (err error) {
 					actual := string(input)
+					//           {"method":"POST","url":"http://localhost:4002","body":{"query":"query($representations: [_Any!]!){_entities(representations: $representations){... on User {reviews {body product {upc __typename}}}}}","variables":{"representations":["id":"1234","__typename":"User"]}}}
 					expected := `{"method":"POST","url":"http://localhost:4002","body":{"query":"query($representations: [_Any!]!){_entities(representations: $representations){... on User {reviews {body product {upc __typename}}}}}","variables":{"representations":[{"id":"1234","__typename":"User"}]}}}`
 					assert.Equal(t, expected, actual)
 					pair := NewBufPair()
@@ -4426,9 +4344,285 @@ func TestResolver_ResolveGraphQLResponse(t *testing.T) {
 						},
 					},
 				},
-			}, Context{ctx: context.Background(), Variables: []byte(`{"companyId":"abc123","date":null}`)}, `{"data":{"me":{"employment":{"id":"xyz987","times":[{"id":"t1","employee":{"id":"xyz987"},"start":"2022-11-02T08:00:00","end":"2022-11-02T12:00:00"}]}}}}`
+			}, Context{ctx: context.Background(), Variables: astjson.MustParseBytes([]byte(`{"companyId":"abc123","date":null}`))}, `{"data":{"me":{"employment":{"id":"xyz987","times":[{"id":"t1","employee":{"id":"xyz987"},"start":"2022-11-02T08:00:00","end":"2022-11-02T12:00:00"}]}}}}`
 		}))
 	})
+}
+
+func TestResolver_ApolloCompatibilityMode_FetchError(t *testing.T) {
+	options := apolloCompatibilityOptions{
+		valueCompletion:     true,
+		suppressFetchErrors: true,
+	}
+	t.Run("simple fetch with fetch error suppression - empty response", testFnApolloCompatibility(func(t *testing.T, ctrl *gomock.Controller) (node *GraphQLResponse, ctx Context, expectedOutput string) {
+		mockDataSource := NewMockDataSource(ctrl)
+		mockDataSource.EXPECT().
+			Load(gomock.Any(), gomock.Any(), gomock.AssignableToTypeOf(&bytes.Buffer{})).
+			DoAndReturn(func(ctx context.Context, input []byte, w io.Writer) (err error) {
+				_, _ = w.Write([]byte("{}"))
+				return
+			})
+		return &GraphQLResponse{
+			Fetches: SingleWithPath(&SingleFetch{
+				InputTemplate: InputTemplate{
+					Segments: []TemplateSegment{
+						{
+							Data:        []byte(`{"method":"POST","url":"http://localhost:4001","body":{"query":"{query{name}}"}}`),
+							SegmentType: StaticSegmentType,
+						},
+					},
+				},
+				FetchConfiguration: FetchConfiguration{
+					DataSource: mockDataSource,
+					PostProcessing: PostProcessingConfiguration{
+						SelectResponseDataPath:   []string{"data"},
+						SelectResponseErrorsPath: []string{"errors"},
+					},
+				},
+			}, "query"),
+			Data: &Object{
+				Fields: []*Field{
+					{
+						Name: []byte("name"),
+						Value: &String{
+							Path: []string{"name"},
+						},
+					},
+				},
+			},
+		}, Context{ctx: context.Background()}, `{"data":null,"extensions":{"valueCompletion":[{"message":"Cannot return null for non-nullable field Query.name.","path":["name"],"extensions":{"code":"INVALID_GRAPHQL"}}]}}`
+	}, &options))
+
+	t.Run("simple fetch with fetch error suppression - response with error", testFnApolloCompatibility(func(t *testing.T, ctrl *gomock.Controller) (node *GraphQLResponse, ctx Context, expectedOutput string) {
+		mockDataSource := NewMockDataSource(ctrl)
+		mockDataSource.EXPECT().
+			Load(gomock.Any(), gomock.Any(), gomock.AssignableToTypeOf(&bytes.Buffer{})).
+			DoAndReturn(func(ctx context.Context, input []byte, w io.Writer) (err error) {
+				_, _ = w.Write([]byte(`{"errors":[{"message":"Cannot query field 'name' on type 'Query'"}]}`))
+				return
+			})
+		return &GraphQLResponse{
+			Fetches: SingleWithPath(&SingleFetch{
+				InputTemplate: InputTemplate{
+					Segments: []TemplateSegment{
+						{
+							Data:        []byte(`{"method":"POST","url":"http://localhost:4001","body":{"query":"{query{name}}"}}`),
+							SegmentType: StaticSegmentType,
+						},
+					},
+				},
+				FetchConfiguration: FetchConfiguration{
+					DataSource: mockDataSource,
+					PostProcessing: PostProcessingConfiguration{
+						SelectResponseDataPath:   []string{"data"},
+						SelectResponseErrorsPath: []string{"errors"},
+					},
+				},
+			}, "query"),
+			Data: &Object{
+				Fields: []*Field{
+					{
+						Name: []byte("name"),
+						Value: &String{
+							Path: []string{"name"},
+						},
+					},
+				},
+			},
+		}, Context{ctx: context.Background()}, `{"errors":[{"message":"Cannot query field 'name' on type 'Query'"}],"data":null}`
+	}, &options))
+
+	t.Run("complex fetch with fetch error suppression", testFnApolloCompatibility(func(t *testing.T, ctrl *gomock.Controller) (node *GraphQLResponse, ctx Context, expectedOutput string) {
+		userService := NewMockDataSource(ctrl)
+		userService.EXPECT().
+			Load(gomock.Any(), gomock.Any(), gomock.AssignableToTypeOf(&bytes.Buffer{})).
+			DoAndReturn(func(ctx context.Context, input []byte, w io.Writer) (err error) {
+				actual := string(input)
+				expected := `{"method":"POST","url":"http://localhost:4001","body":{"query":"{me {id username}}"}}`
+				assert.Equal(t, expected, actual)
+				pair := NewBufPair()
+				pair.Data.WriteString(`{"me": {"id": "1234","username": "Me","__typename": "User"}}`)
+				return writeGraphqlResponse(pair, w, false)
+			})
+
+		reviewsService := NewMockDataSource(ctrl)
+		reviewsService.EXPECT().
+			Load(gomock.Any(), gomock.Any(), gomock.AssignableToTypeOf(&bytes.Buffer{})).
+			DoAndReturn(func(ctx context.Context, input []byte, w io.Writer) (err error) {
+				actual := string(input)
+				expected := `{"method":"POST","url":"http://localhost:4002","body":{"query":"query($representations: [_Any!]!){_entities(representations: $representations){... on User {reviews {body product {upc __typename}}}}}","variables":{"representations":[{"id":"1234","__typename":"User"}]}}}`
+				assert.Equal(t, expected, actual)
+				pair := NewBufPair()
+				pair.Data.WriteString(`{"_entities":[{"reviews":[{"body": "A highly effective form of birth control.","product":{"upc": "top-1","__typename":"Product"}},{"body":"Fedoras are one of the most fashionable hats around and can look great with a variety of outfits.","product":{"upc":"top-2","__typename":"Product"}}]}]}`)
+				return writeGraphqlResponse(pair, w, false)
+			})
+
+		productService := NewMockDataSource(ctrl)
+		productService.EXPECT().
+			Load(gomock.Any(), gomock.Any(), gomock.AssignableToTypeOf(&bytes.Buffer{})).
+			DoAndReturn(func(ctx context.Context, input []byte, w io.Writer) (err error) {
+				actual := string(input)
+				expected := `{"method":"POST","url":"http://localhost:4003","body":{"query":"query($representations: [_Any!]!){_entities(representations: $representations){... on Product {name}}}","variables":{"representations":[{"upc":"top-1","__typename":"Product"},{"upc":"top-2","__typename":"Product"}]}}}`
+				assert.Equal(t, expected, actual)
+				pair := NewBufPair()
+				pair.WriteErr([]byte("errorMessage"), nil, nil, nil)
+				return writeGraphqlResponse(pair, w, false)
+			})
+
+		return &GraphQLResponse{
+			Fetches: Sequence(
+				SingleWithPath(&SingleFetch{
+					InputTemplate: InputTemplate{
+						Segments: []TemplateSegment{
+							{
+								Data:        []byte(`{"method":"POST","url":"http://localhost:4001","body":{"query":"{me {id username}}"}}`),
+								SegmentType: StaticSegmentType,
+							},
+						},
+					},
+					FetchConfiguration: FetchConfiguration{
+						DataSource: userService,
+						PostProcessing: PostProcessingConfiguration{
+							SelectResponseDataPath: []string{"data"},
+						},
+					},
+				}, "query"),
+				SingleWithPath(&SingleFetch{
+					InputTemplate: InputTemplate{
+						Segments: []TemplateSegment{
+							{
+								Data:        []byte(`{"method":"POST","url":"http://localhost:4002","body":{"query":"query($representations: [_Any!]!){_entities(representations: $representations){... on User {reviews {body product {upc __typename}}}}}","variables":{"representations":[{"id":"`),
+								SegmentType: StaticSegmentType,
+							},
+							{
+								SegmentType:        VariableSegmentType,
+								VariableKind:       ObjectVariableKind,
+								VariableSourcePath: []string{"id"},
+								Renderer:           NewPlainVariableRenderer(),
+							},
+							{
+								Data:        []byte(`","__typename":"User"}]}}}`),
+								SegmentType: StaticSegmentType,
+							},
+						},
+					},
+					FetchConfiguration: FetchConfiguration{
+						DataSource: reviewsService,
+						PostProcessing: PostProcessingConfiguration{
+							SelectResponseDataPath: []string{"data", "_entities", "0"},
+						},
+					},
+				}, "query.me", ObjectPath("me")),
+				SingleWithPath(&SingleFetch{
+					InputTemplate: InputTemplate{
+						Segments: []TemplateSegment{
+							{
+								Data:        []byte(`{"method":"POST","url":"http://localhost:4003","body":{"query":"query($representations: [_Any!]!){_entities(representations: $representations){... on Product {name}}}","variables":{"representations":`),
+								SegmentType: StaticSegmentType,
+							},
+							{
+								SegmentType:        VariableSegmentType,
+								VariableKind:       ResolvableObjectVariableKind,
+								VariableSourcePath: []string{"upc"},
+								Renderer: NewGraphQLVariableResolveRenderer(&Array{
+									Item: &Object{
+										Fields: []*Field{
+											{
+												Name: []byte("upc"),
+												Value: &String{
+													Path: []string{"upc"},
+												},
+											},
+											{
+												Name: []byte("__typename"),
+												Value: &String{
+													Path: []string{"__typename"},
+												},
+											},
+										},
+									},
+								}),
+							},
+							{
+								Data:        []byte(`}}}`),
+								SegmentType: StaticSegmentType,
+							},
+						},
+					},
+					FetchConfiguration: FetchConfiguration{
+						DataSource: productService,
+						PostProcessing: PostProcessingConfiguration{
+							SelectResponseDataPath:   []string{"data", "_entities"},
+							SelectResponseErrorsPath: []string{"errors"},
+						},
+					},
+				}, "query.me.reviews.@.product", ObjectPath("me"), ArrayPath("reviews"), ObjectPath("product")),
+			),
+			Data: &Object{
+				Fields: []*Field{
+					{
+						Name: []byte("me"),
+						Value: &Object{
+							Path:     []string{"me"},
+							Nullable: true,
+							Fields: []*Field{
+								{
+									Name: []byte("id"),
+									Value: &String{
+										Path: []string{"id"},
+									},
+								},
+								{
+									Name: []byte("username"),
+									Value: &String{
+										Path: []string{"username"},
+									},
+								},
+								{
+									Name: []byte("reviews"),
+									Value: &Array{
+										Path:     []string{"reviews"},
+										Nullable: true,
+										Item: &Object{
+											Fields: []*Field{
+												{
+													Name: []byte("body"),
+													Value: &String{
+														Path: []string{"body"},
+													},
+												},
+												{
+													Name: []byte("product"),
+													Value: &Object{
+														Path: []string{"product"},
+														Fields: []*Field{
+															{
+																Name: []byte("upc"),
+																Value: &String{
+																	Path: []string{"upc"},
+																},
+															},
+															{
+																Name: []byte("name"),
+																Value: &String{
+																	Path: []string{"name"},
+																},
+															},
+														},
+														TypeName: "Product",
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}, Context{ctx: context.Background(), Variables: nil}, `{"errors":[{"message":"errorMessage"}],"data":{"me":{"id":"1234","username":"Me","reviews":null}}}`
+	}, &options))
 }
 
 func TestResolver_WithHeader(t *testing.T) {
@@ -4504,11 +4698,86 @@ func TestResolver_WithHeader(t *testing.T) {
 	}
 }
 
+func TestResolver_WithVariableRemapping(t *testing.T) {
+	cases := []struct {
+		name, variable string
+		remap          map[string]string
+		variables      *astjson.Value
+		expectedOutput string
+	}{
+		{"a to foo", "a", map[string]string{"a": "foo"}, astjson.MustParseBytes([]byte(`{"foo":"Wunderbar"}`)), `Wunderbar`},
+		{"a to a", "a", map[string]string{"a": "a"}, astjson.MustParseBytes([]byte(`{"a":"WunderWunderbar"}`)), `WunderWunderbar`},
+		{"no mapping", "foo", map[string]string{}, astjson.MustParseBytes([]byte(`{"foo":"BarDeWunder"}`)), `BarDeWunder`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rCtx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			resolver := newResolver(rCtx)
+
+			ctx := &Context{
+				ctx:            context.Background(),
+				Variables:      tc.variables,
+				RemapVariables: tc.remap,
+			}
+
+			ctrl := gomock.NewController(t)
+			fakeService := NewMockDataSource(ctrl)
+			fakeService.EXPECT().
+				Load(gomock.Any(), gomock.Any(), gomock.AssignableToTypeOf(&bytes.Buffer{})).
+				Do(func(ctx context.Context, input []byte, w io.Writer) (err error) {
+					actual := string(input)
+					assert.Equal(t, tc.expectedOutput, actual)
+					_, err = w.Write([]byte(`{"bar":"baz"}`))
+					return
+				}).
+				Return(nil)
+
+			out := &bytes.Buffer{}
+			res := &GraphQLResponse{
+				Info: &GraphQLResponseInfo{
+					OperationType: ast.OperationTypeQuery,
+				},
+				Fetches: SingleWithPath(&SingleFetch{
+					FetchConfiguration: FetchConfiguration{
+						DataSource: fakeService,
+					},
+					InputTemplate: InputTemplate{
+						Segments: []TemplateSegment{
+							{
+								SegmentType:        VariableSegmentType,
+								VariableKind:       ContextVariableKind,
+								VariableSourcePath: []string{tc.variable},
+								Renderer:           NewPlainVariableRenderer(),
+							},
+						},
+					},
+				}, "query"),
+				Data: &Object{
+					Fields: []*Field{
+						{
+							Name: []byte("bar"),
+							Value: &String{
+								Path: []string{"bar"},
+							},
+						},
+					},
+				},
+			}
+			_, err := resolver.ResolveGraphQLResponse(ctx, res, nil, out)
+			assert.NoError(t, err)
+			assert.Equal(t, `{"data":{"bar":"baz"}}`, out.String())
+		})
+	}
+}
+
 type SubscriptionRecorder struct {
 	buf      *bytes.Buffer
 	messages []string
 	complete atomic.Bool
 	mux      sync.Mutex
+	onFlush  func(p []byte)
 }
 
 func (s *SubscriptionRecorder) AwaitMessages(t *testing.T, count int, timeout time.Duration) {
@@ -4566,6 +4835,9 @@ func (s *SubscriptionRecorder) Write(p []byte) (n int, err error) {
 }
 
 func (s *SubscriptionRecorder) Flush() error {
+	if s.onFlush != nil {
+		s.onFlush(s.buf.Bytes())
+	}
 	s.mux.Lock()
 	defer s.mux.Unlock()
 	s.messages = append(s.messages, s.buf.String())
@@ -4593,6 +4865,8 @@ func createFakeStream(messageFunc messageFunc, delay time.Duration, onStart func
 
 type messageFunc func(counter int) (message string, done bool)
 
+var fakeStreamRequestId atomic.Int32
+
 type _fakeStream struct {
 	messageFunc messageFunc
 	onStart     func(input []byte)
@@ -4615,7 +4889,7 @@ func (f *_fakeStream) AwaitIsDone(t *testing.T, timeout time.Duration) {
 }
 
 func (f *_fakeStream) UniqueRequestID(ctx *Context, input []byte, xxh *xxhash.Digest) (err error) {
-	_, err = xxh.WriteString("fakeStream")
+	_, err = xxh.WriteString(fmt.Sprintf("%d", fakeStreamRequestId.Add(1)))
 	if err != nil {
 		return
 	}
@@ -4659,6 +4933,27 @@ func TestResolver_ResolveGraphQLSubscription(t *testing.T) {
 	}
 
 	setup := func(ctx context.Context, stream SubscriptionDataSource) (*Resolver, *GraphQLSubscription, *SubscriptionRecorder, SubscriptionIdentifier) {
+
+		fetches := Sequence()
+		fetches.Trigger = &FetchTreeNode{
+			Kind: FetchTreeNodeKindTrigger,
+			Item: &FetchItem{
+				Fetch: &SingleFetch{
+					FetchDependencies: FetchDependencies{
+						FetchID: 0,
+					},
+					Info: &FetchInfo{
+						DataSourceID:   "0",
+						DataSourceName: "counter",
+						QueryPlan: &QueryPlan{
+							Query: "subscription { counter }",
+						},
+					},
+				},
+				ResponsePath: "counter",
+			},
+		}
+
 		plan := &GraphQLSubscription{
 			Trigger: GraphQLSubscriptionTrigger{
 				Source: stream,
@@ -4683,9 +4978,134 @@ func TestResolver_ResolveGraphQLSubscription(t *testing.T) {
 							Value: &Integer{
 								Path: []string{"counter"},
 							},
+							Info: &FieldInfo{
+								Name:                "counter",
+								ExactParentTypeName: "Subscription",
+								Source: TypeFieldSource{
+									IDs:   []string{"0"},
+									Names: []string{"counter"},
+								},
+								FetchID: 0,
+							},
 						},
 					},
 				},
+				Fetches: fetches,
+			},
+		}
+
+		out := &SubscriptionRecorder{
+			buf:      &bytes.Buffer{},
+			messages: []string{},
+			complete: atomic.Bool{},
+		}
+		out.complete.Store(false)
+
+		id := SubscriptionIdentifier{
+			ConnectionID:   1,
+			SubscriptionID: 1,
+		}
+
+		return newResolver(ctx), plan, out, id
+	}
+
+	setupWithAdditionalDataLoad := func(ctx context.Context, stream SubscriptionDataSource) (*Resolver, *GraphQLSubscription, *SubscriptionRecorder, SubscriptionIdentifier) {
+		fetches := Sequence()
+		fetches.Trigger = &FetchTreeNode{
+			Kind: FetchTreeNodeKindTrigger,
+			Item: &FetchItem{
+				Fetch: &SingleFetch{
+					FetchDependencies: FetchDependencies{
+						FetchID: 0,
+					},
+					Info: &FetchInfo{
+						DataSourceID:   "0",
+						DataSourceName: "country",
+						QueryPlan: &QueryPlan{
+							Query: "subscription { countryUpdated { name time { local } } }",
+						},
+					},
+				},
+				ResponsePath: "countryUpdated",
+			},
+		}
+		fetches.ChildNodes = []*FetchTreeNode{{
+			Kind: FetchTreeNodeKindSingle,
+			Item: &FetchItem{
+				Fetch: &SingleFetch{
+					FetchDependencies: FetchDependencies{
+						FetchID:           1,
+						DependsOnFetchIDs: []int{0},
+					},
+					Info: &FetchInfo{
+						DataSourceID:   "1",
+						DataSourceName: "time",
+						OperationType:  ast.OperationTypeQuery,
+						QueryPlan: &QueryPlan{
+							Query: "query($representations: [_Any!]!){\n    _entities(representations: $representations){\n        ... on Time {\n            __typename\n            local\n        }\n    }\n}",
+						},
+					},
+				},
+				ResponsePath: "countryUpdated.time",
+			},
+		}}
+
+		plan := &GraphQLSubscription{
+			Trigger: GraphQLSubscriptionTrigger{
+				Source: stream,
+				InputTemplate: InputTemplate{
+					Segments: []TemplateSegment{
+						{
+							SegmentType: StaticSegmentType,
+							Data:        []byte(`{"method":"POST","url":"http://localhost:4000","body":{"query":"subscription { countryUpdated { name time { local } } }"}}`),
+						},
+					},
+				},
+				PostProcessing: PostProcessingConfiguration{
+					SelectResponseDataPath:   []string{"data"},
+					SelectResponseErrorsPath: []string{"errors"},
+				},
+			},
+			Response: &GraphQLResponse{
+				Data: &Object{
+					Fields: []*Field{
+						{
+							Name: []byte("countryUpdated"),
+							Value: &Object{
+								Path: []string{"countryUpdated"},
+								Fields: []*Field{{
+									Name: []byte("name"),
+									Value: &String{
+										Path: []string{"name"},
+									},
+								}, {
+									Name: []byte("time"),
+									Value: &Object{
+										Path: []string{"time"},
+										Fields: []*Field{{
+											Name: []byte("local"),
+											Value: &String{
+												Path: []string{"local"},
+											},
+										}},
+									},
+								}},
+								SourceName: "country",
+								TypeName:   "Country",
+							},
+							Info: &FieldInfo{
+								Name:                "countryUpdated",
+								ExactParentTypeName: "Subscription",
+								Source: TypeFieldSource{
+									IDs:   []string{"0"},
+									Names: []string{"country"},
+								},
+								FetchID: 0,
+							},
+						},
+					},
+				},
+				Fetches: fetches,
 			},
 		}
 
@@ -4756,16 +5176,64 @@ func TestResolver_ResolveGraphQLSubscription(t *testing.T) {
 
 		ctx := &Context{
 			ctx: context.Background(),
+			ExecutionOptions: ExecutionOptions{
+				SendHeartbeat: true,
+			},
 		}
 
 		err := resolver.AsyncResolveGraphQLSubscription(ctx, plan, recorder, id)
 		assert.NoError(t, err)
+
 		recorder.AwaitComplete(t, defaultTimeout)
 		assert.Equal(t, 3, len(recorder.Messages()))
+		time.Sleep(2 * resolver.multipartSubHeartbeatInterval)
+		// Validate that despite the time, we don't see any heartbeats sent
 		assert.ElementsMatch(t, []string{
 			`{"data":{"counter":0}}`,
 			`{"data":{"counter":1}}`,
 			`{"data":{"counter":2}}`,
+		}, recorder.Messages())
+	})
+
+	t.Run("should successfully delete multiple finished subscriptions", func(t *testing.T) {
+		c, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		fakeStream := createFakeStream(func(counter int) (message string, done bool) {
+			return fmt.Sprintf(`{"data":{"counter":%d}}`, counter), counter == 1
+		}, 1*time.Millisecond, func(input []byte) {
+			assert.Equal(t, `{"method":"POST","url":"http://localhost:4000","body":{"query":"subscription { counter }"}}`, string(input))
+		})
+
+		resolver, plan, recorder, id := setup(c, fakeStream)
+
+		ctx := &Context{
+			ctx: context.Background(),
+			ExecutionOptions: ExecutionOptions{
+				SendHeartbeat: true,
+			},
+		}
+
+		for i := 1; i <= 10; i++ {
+			id.ConnectionID = int64(i)
+			id.SubscriptionID = int64(i)
+			recorder.complete.Store(false)
+			err := resolver.AsyncResolveGraphQLSubscription(ctx, plan, recorder, id)
+			assert.NoError(t, err)
+			recorder.AwaitComplete(t, defaultTimeout)
+		}
+
+		recorder.AwaitComplete(t, defaultTimeout)
+		time.Sleep(2 * resolver.multipartSubHeartbeatInterval)
+
+		assert.Equal(t, 20, len(recorder.Messages()))
+		// Validate that despite the time, we don't see any heartbeats sent
+		assert.ElementsMatch(t, []string{
+			`{"data":{"counter":0}}`, `{"data":{"counter":1}}`, `{"data":{"counter":0}}`, `{"data":{"counter":1}}`,
+			`{"data":{"counter":0}}`, `{"data":{"counter":1}}`, `{"data":{"counter":0}}`, `{"data":{"counter":1}}`,
+			`{"data":{"counter":0}}`, `{"data":{"counter":1}}`, `{"data":{"counter":0}}`, `{"data":{"counter":1}}`,
+			`{"data":{"counter":0}}`, `{"data":{"counter":1}}`, `{"data":{"counter":0}}`, `{"data":{"counter":1}}`,
+			`{"data":{"counter":0}}`, `{"data":{"counter":1}}`, `{"data":{"counter":0}}`, `{"data":{"counter":1}}`,
 		}, recorder.Messages())
 	})
 
@@ -4873,6 +5341,167 @@ func TestResolver_ResolveGraphQLSubscription(t *testing.T) {
 		assert.NoError(t, err)
 		recorder.AwaitComplete(t, defaultTimeout)
 		fakeStream.AwaitIsDone(t, defaultTimeout)
+	})
+
+	t.Run("renders query plan with trigger", func(t *testing.T) {
+		c, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		fakeStream := createFakeStream(func(counter int) (message string, done bool) {
+			return fmt.Sprintf(`{"data":{"counter":%d}}`, counter), counter == 0
+		}, 0, func(input []byte) {
+			assert.Equal(t, `{"method":"POST","url":"http://localhost:4000","body":{"query":"subscription { counter }"}}`, string(input))
+		})
+
+		resolver, plan, recorder, id := setup(c, fakeStream)
+
+		ctx := &Context{
+			ctx: context.Background(),
+			ExecutionOptions: ExecutionOptions{
+				SkipLoader:                 true,
+				IncludeQueryPlanInResponse: true,
+			},
+		}
+
+		err := resolver.AsyncResolveGraphQLSubscription(ctx, plan, recorder, id)
+		assert.NoError(t, err)
+		recorder.AwaitComplete(t, defaultTimeout)
+		assert.Equal(t, 1, len(recorder.Messages()))
+		assert.ElementsMatch(t, []string{
+			`{"data":null,"extensions":{"queryPlan":{"version":"1","kind":"Sequence","trigger":{"kind":"Trigger","path":"counter","subgraphName":"counter","subgraphId":"0","fetchId":0,"query":"subscription { counter }"}}}}`,
+		}, recorder.Messages())
+	})
+
+	t.Run("renders query plan with trigger and additional data", func(t *testing.T) {
+		c, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		fakeStream := createFakeStream(func(counter int) (message string, done bool) {
+			return fmt.Sprintf(`{"data":{"counter":%d}}`, counter), counter == 0
+		}, 0, func(input []byte) {
+			assert.Equal(t, `{"method":"POST","url":"http://localhost:4000","body":{"query":"subscription { countryUpdated { name time { local } } }"}}`, string(input))
+		})
+
+		resolver, plan, recorder, id := setupWithAdditionalDataLoad(c, fakeStream)
+
+		ctx := &Context{
+			ctx: context.Background(),
+			ExecutionOptions: ExecutionOptions{
+				SkipLoader:                 true,
+				IncludeQueryPlanInResponse: true,
+			},
+		}
+
+		err := resolver.AsyncResolveGraphQLSubscription(ctx, plan, recorder, id)
+		assert.NoError(t, err)
+		recorder.AwaitComplete(t, defaultTimeout)
+		assert.Equal(t, 1, len(recorder.Messages()))
+		assert.ElementsMatch(t, []string{
+			`{"data":null,"extensions":{"queryPlan":{"version":"1","kind":"Sequence","trigger":{"kind":"Trigger","path":"countryUpdated","subgraphName":"country","subgraphId":"0","fetchId":0,"query":"subscription { countryUpdated { name time { local } } }"},"children":[{"kind":"Single","fetch":{"kind":"Single","path":"countryUpdated.time","subgraphName":"time","subgraphId":"1","fetchId":1,"dependsOnFetchIds":[0],"query":"query($representations: [_Any!]!){\n    _entities(representations: $representations){\n        ... on Time {\n            __typename\n            local\n        }\n    }\n}"}}]}}}`,
+		}, recorder.Messages())
+	})
+
+	t.Run("should successfully allow more than one subscription using http multipart", func(t *testing.T) {
+		c, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		fakeStream := createFakeStream(func(counter int) (message string, done bool) {
+			return fmt.Sprintf(`{"data":{"counter":%d}}`, counter), false
+		}, 0, func(input []byte) {
+			assert.Equal(t, `{"method":"POST","url":"http://localhost:4000","body":{"query":"subscription { counter }"}}`, string(input))
+		})
+
+		resolver, plan, _, _ := setup(c, fakeStream)
+
+		ctx := &Context{
+			ctx: context.Background(),
+			ExecutionOptions: ExecutionOptions{
+				SendHeartbeat: true,
+			},
+		}
+
+		const numSubscriptions = testMaxSubscriptionWorkers + 1
+		var resolverCompleted atomic.Uint32
+		var recorderCompleted atomic.Uint32
+		for i := 0; i < numSubscriptions; i++ {
+			recorder := &SubscriptionRecorder{
+				buf:      &bytes.Buffer{},
+				messages: []string{},
+				complete: atomic.Bool{},
+			}
+			recorder.complete.Store(false)
+
+			go func() {
+				defer recorderCompleted.Add(1)
+
+				recorder.AwaitAnyMessageCount(t, defaultTimeout)
+			}()
+
+			go func() {
+				defer resolverCompleted.Add(1)
+
+				err := resolver.ResolveGraphQLSubscription(ctx, plan, recorder)
+				assert.ErrorIs(t, err, context.Canceled)
+			}()
+		}
+		assert.Eventually(t, func() bool {
+			return recorderCompleted.Load() == numSubscriptions
+		}, defaultTimeout, time.Millisecond*100)
+
+		cancel()
+
+		assert.Eventually(t, func() bool {
+			return resolverCompleted.Load() == numSubscriptions
+		}, defaultTimeout, time.Millisecond*100)
+	})
+
+	t.Run("should wait for all in flight operations to be completed", func(t *testing.T) {
+		c, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		var started atomic.Bool
+		var complete atomic.Bool
+
+		fakeStream := createFakeStream(func(counter int) (message string, done bool) {
+			defer started.Store(true)
+			return fmt.Sprintf(`{"data":{"counter":%d}}`, counter), true
+		}, 0, func(input []byte) {
+			assert.Equal(t, `{"method":"POST","url":"http://localhost:4000","body":{"query":"subscription { counter }"}}`, string(input))
+		})
+
+		resolver, plan, _, id := setup(c, fakeStream)
+		recorder := &SubscriptionRecorder{
+			buf:      &bytes.Buffer{},
+			messages: []string{},
+			complete: atomic.Bool{},
+			onFlush: func(p []byte) {
+				for !complete.Load() {
+					time.Sleep(time.Millisecond * 10)
+				}
+			},
+		}
+		recorder.complete.Store(false)
+
+		ctx := Context{
+			ctx: context.Background(),
+		}
+
+		err := resolver.AsyncResolveGraphQLSubscription(&ctx, plan, recorder, id)
+		assert.NoError(t, err)
+		assert.Eventually(t, func() bool {
+			return started.Load()
+		}, defaultTimeout, time.Millisecond*100)
+		var unsubscribeComplete atomic.Bool
+		go func() {
+			defer unsubscribeComplete.Store(true)
+			err = resolver.AsyncUnsubscribeSubscription(id)
+			assert.NoError(t, err)
+		}()
+		assert.Len(t, resolver.triggers, 1)
+		complete.Store(true)
+		assert.Eventually(t, unsubscribeComplete.Load, defaultTimeout, time.Millisecond*100)
+		recorder.AwaitComplete(t, defaultTimeout)
+		assert.Len(t, resolver.triggers, 0)
 	})
 }
 
@@ -5013,7 +5642,8 @@ func Test_ResolveGraphQLSubscriptionWithFilter(t *testing.T) {
 		resolver := newResolver(c)
 
 		ctx := &Context{
-			Variables: []byte(`{"id":1}`),
+			ctx:       context.Background(),
+			Variables: astjson.MustParseBytes([]byte(`{"id":1}`)),
 		}
 
 		err := resolver.AsyncResolveGraphQLSubscription(ctx, plan, out, id)
@@ -5108,7 +5738,8 @@ func Test_ResolveGraphQLSubscriptionWithFilter(t *testing.T) {
 		resolver := newResolver(c)
 
 		ctx := &Context{
-			Variables: []byte(`{"id":2}`),
+			ctx:       context.Background(),
+			Variables: astjson.MustParseBytes([]byte(`{"id":2}`)),
 		}
 
 		err := resolver.AsyncResolveGraphQLSubscription(ctx, plan, out, id)
@@ -5201,7 +5832,8 @@ func Test_ResolveGraphQLSubscriptionWithFilter(t *testing.T) {
 		resolver := newResolver(c)
 
 		ctx := &Context{
-			Variables: []byte(`{"ids":[1,2]}`),
+			ctx:       context.Background(),
+			Variables: astjson.MustParseBytes([]byte(`{"ids":[1,2]}`)),
 		}
 
 		err := resolver.AsyncResolveGraphQLSubscription(ctx, plan, out, id)
@@ -5299,7 +5931,8 @@ func Test_ResolveGraphQLSubscriptionWithFilter(t *testing.T) {
 		resolver := newResolver(c)
 
 		ctx := &Context{
-			Variables: []byte(`{"ids":["2","3"]}`),
+			ctx:       context.Background(),
+			Variables: astjson.MustParseBytes([]byte(`{"ids":["2","3"]}`)),
 		}
 
 		err := resolver.AsyncResolveGraphQLSubscription(ctx, plan, out, id)
@@ -5407,7 +6040,8 @@ func Test_ResolveGraphQLSubscriptionWithFilter(t *testing.T) {
 		resolver := newResolver(c)
 
 		ctx := &Context{
-			Variables: []byte(`{"a":[1,2],"b":[3,4]}`),
+			ctx:       context.Background(),
+			Variables: astjson.MustParseBytes([]byte(`{"a":[1,2],"b":[3,4]}`)),
 		}
 
 		err := resolver.AsyncResolveGraphQLSubscription(ctx, plan, out, id)
@@ -5421,547 +6055,6 @@ func Test_ResolveGraphQLSubscriptionWithFilter(t *testing.T) {
 			`{"errors":[{"message":"invalid subscription filter template"}],"data":null}`,
 		}, out.Messages())
 	})
-}
-
-func Benchmark_ResolveGraphQLResponse(b *testing.B) {
-	rCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	resolver := newResolver(rCtx)
-
-	userService := FakeDataSource(`{"data":{"users":[{"name":"Bill","info":{"id":11,"__typename":"Info"},"address":{"id":55,"__typename":"Address"}},{"name":"John","info":{"id":12,"__typename":"Info"},"address":{"id":55,"__typename":"Address"}},{"name":"Jane","info":{"id":13,"__typename":"Info"},"address":{"id":55,"__typename":"Address"}}]}}`)
-	infoService := FakeDataSource(`{"data":{"_entities":[{"age":21,"__typename":"Info"},{"line1":"Munich","__typename":"Address"},{"age":22,"__typename":"Info"},{"age":23,"__typename":"Info"}]}}`)
-
-	plan := &GraphQLResponse{
-		Data: &Object{
-			Fetch: &SingleFetch{
-				InputTemplate: InputTemplate{
-					Segments: []TemplateSegment{
-						{
-							Data:        []byte(`{"method":"POST","url":"http://localhost:4001","body":{"query":"{ users { name info {id __typename} address {id __typename} } }"}}`),
-							SegmentType: StaticSegmentType,
-						},
-					},
-				},
-				FetchConfiguration: FetchConfiguration{
-					DataSource: userService,
-					PostProcessing: PostProcessingConfiguration{
-						SelectResponseDataPath: []string{"data"},
-					},
-				},
-			},
-			Fields: []*Field{
-				{
-					Name: []byte("users"),
-					Value: &Array{
-						Path: []string{"users"},
-						Item: &Object{
-							Fetch: &BatchEntityFetch{
-								Input: BatchInput{
-									Header: InputTemplate{
-										Segments: []TemplateSegment{
-											{
-												Data:        []byte(`{"method":"POST","url":"http://localhost:4002","body":{"query":"query($representations: [_Any!]!){_entities(representations: $representations) { ... on Info { age } ... on Address { line1 }}}}}","variables":{"representations":[`),
-												SegmentType: StaticSegmentType,
-											},
-										},
-									},
-									Items: []InputTemplate{
-										{
-											Segments: []TemplateSegment{
-												{
-													SegmentType:  VariableSegmentType,
-													VariableKind: ResolvableObjectVariableKind,
-													Renderer: NewGraphQLVariableResolveRenderer(&Object{
-														Path: []string{"info"},
-														Fields: []*Field{
-															{
-																Name: []byte("id"),
-																Value: &Integer{
-																	Path: []string{"id"},
-																},
-															},
-															{
-																Name: []byte("__typename"),
-																Value: &String{
-																	Path: []string{"__typename"},
-																},
-															},
-														},
-													}),
-												},
-											},
-										},
-										{
-											Segments: []TemplateSegment{
-												{
-													SegmentType:  VariableSegmentType,
-													VariableKind: ResolvableObjectVariableKind,
-													Renderer: NewGraphQLVariableResolveRenderer(&Object{
-														Path: []string{"address"},
-														Fields: []*Field{
-															{
-																Name: []byte("id"),
-																Value: &Integer{
-																	Path: []string{"id"},
-																},
-															},
-															{
-																Name: []byte("__typename"),
-																Value: &String{
-																	Path: []string{"__typename"},
-																},
-															},
-														},
-													}),
-												},
-											},
-										},
-									},
-									Separator: InputTemplate{
-										Segments: []TemplateSegment{
-											{
-												Data:        []byte(`,`),
-												SegmentType: StaticSegmentType,
-											},
-										},
-									},
-									Footer: InputTemplate{
-										Segments: []TemplateSegment{
-											{
-												Data:        []byte(`]}}}`),
-												SegmentType: StaticSegmentType,
-											},
-										},
-									},
-								},
-								DataSource: infoService,
-								PostProcessing: PostProcessingConfiguration{
-									SelectResponseDataPath: []string{"data", "_entities"},
-									ResponseTemplate: &InputTemplate{
-										Segments: []TemplateSegment{
-											{
-												SegmentType:  VariableSegmentType,
-												VariableKind: ResolvableObjectVariableKind,
-												Renderer: NewGraphQLVariableResolveRenderer(&Object{
-													Fields: []*Field{
-														{
-															Name: []byte("info"),
-															Value: &Object{
-																Fields: []*Field{
-																	{
-																		Name: []byte("age"),
-																		Value: &Integer{
-																			Path: []string{"0", "age"},
-																		},
-																	},
-																},
-															},
-														},
-														{
-															Name: []byte("address"),
-															Value: &Object{
-																Fields: []*Field{
-																	{
-																		Name: []byte("line1"),
-																		Value: &String{
-																			Path: []string{"1", "line1"},
-																		},
-																	},
-																},
-															},
-														},
-													},
-												}),
-											},
-										},
-									},
-								},
-							},
-							Fields: []*Field{
-								{
-									Name: []byte("name"),
-									Value: &String{
-										Path: []string{"name"},
-									},
-								},
-								{
-									Name: []byte("info"),
-									Value: &Object{
-										Path: []string{"info"},
-										Fields: []*Field{
-											{
-												Name: []byte("age"),
-												Value: &Integer{
-													Path: []string{"age"},
-												},
-											},
-										},
-									},
-								},
-								{
-									Name: []byte("address"),
-									Value: &Object{
-										Path: []string{"address"},
-										Fields: []*Field{
-											{
-												Name: []byte("line1"),
-												Value: &String{
-													Path: []string{"line1"},
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	var err error
-	expected := []byte(`{"data":{"users":[{"name":"Bill","info":{"age":21},"address":{"line1":"Munich"}},{"name":"John","info":{"age":22},"address":{"line1":"Munich"}},{"name":"Jane","info":{"age":23},"address":{"line1":"Munich"}}]}}`)
-
-	pool := sync.Pool{
-		New: func() interface{} {
-			return bytes.NewBuffer(make([]byte, 0, 1024))
-		},
-	}
-
-	ctxPool := sync.Pool{
-		New: func() interface{} {
-			return NewContext(context.Background())
-		},
-	}
-
-	b.ReportAllocs()
-	b.SetBytes(int64(len(expected)))
-	b.ResetTimer()
-
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			// _ = resolver.ResolveGraphQLResponse(ctx, plan, nil, ioutil.Discard)
-			ctx := ctxPool.Get().(*Context)
-			buf := pool.Get().(*bytes.Buffer)
-			_, err = resolver.ResolveGraphQLResponse(ctx, plan, nil, buf)
-			if err != nil {
-				b.Fatal(err)
-			}
-			if !bytes.Equal(expected, buf.Bytes()) {
-				b.Fatalf("want:\n%s\ngot:\n%s\n", string(expected), buf.String())
-			}
-
-			buf.Reset()
-			pool.Put(buf)
-
-			ctx.Free()
-			ctxPool.Put(ctx)
-		}
-	})
-}
-
-func Test_NestedBatching_WithStats(t *testing.T) {
-	rCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	resolver := newResolver(rCtx)
-
-	productsService := fakeDataSourceWithInputCheck(t,
-		[]byte(`{"method":"POST","url":"http://products","body":{"query":"query{topProducts{name __typename upc}}"}}`),
-		[]byte(`{"data":{"topProducts":[{"name":"Table","__typename":"Product","upc":"1"},{"name":"Couch","__typename":"Product","upc":"2"},{"name":"Chair","__typename":"Product","upc":"3"}]}}`))
-	stockService := fakeDataSourceWithInputCheck(t,
-		[]byte(`{"method":"POST","url":"http://stock","body":{"query":"query($representations: [_Any!]!){_entities(representations: $representations){__typename ... on Product {stock}}}","variables":{"representations":[{"__typename":"Product","upc":"1"},{"__typename":"Product","upc":"2"},{"__typename":"Product","upc":"3"}]}}}`),
-		[]byte(`{"data":{"_entities":[{"stock":8},{"stock":2},{"stock":5}]}}`))
-	reviewsService := fakeDataSourceWithInputCheck(t,
-		[]byte(`{"method":"POST","url":"http://reviews","body":{"query":"query($representations: [_Any!]!){_entities(representations: $representations){__typename ... on Product {reviews {body author {__typename id}}}}}","variables":{"representations":[{"__typename":"Product","upc":"1"},{"__typename":"Product","upc":"2"},{"__typename":"Product","upc":"3"}]}}}`),
-		[]byte(`{"data":{"_entities":[{"__typename":"Product","reviews":[{"body":"Love Table!","author":{"__typename":"User","id":"1"}},{"body":"Prefer other Table.","author":{"__typename":"User","id":"2"}}]},{"__typename":"Product","reviews":[{"body":"Couch Too expensive.","author":{"__typename":"User","id":"1"}}]},{"__typename":"Product","reviews":[{"body":"Chair Could be better.","author":{"__typename":"User","id":"2"}}]}]}}`))
-	usersService := fakeDataSourceWithInputCheck(t,
-		[]byte(`{"method":"POST","url":"http://users","body":{"query":"query($representations: [_Any!]!){_entities(representations: $representations){__typename ... on User {name}}}","variables":{"representations":[{"__typename":"User","id":"1"},{"__typename":"User","id":"2"}]}}}`),
-		[]byte(`{"data":{"_entities":[{"name":"user-1"},{"name":"user-2"}]}}`))
-
-	plan := &GraphQLResponse{
-		Info: &GraphQLResponseInfo{
-			OperationType: ast.OperationTypeQuery,
-		},
-		Fetches: Sequence(
-			SingleWithPath(&SingleFetch{
-				InputTemplate: InputTemplate{
-					Segments: []TemplateSegment{
-						{
-							Data:        []byte(`{"method":"POST","url":"http://products","body":{"query":"query{topProducts{name __typename upc}}"}}`),
-							SegmentType: StaticSegmentType,
-						},
-					},
-				},
-				FetchConfiguration: FetchConfiguration{
-					DataSource: productsService,
-					PostProcessing: PostProcessingConfiguration{
-						SelectResponseDataPath: []string{"data"},
-					},
-				},
-			}, "query"),
-			Parallel(
-				SingleWithPath(&BatchEntityFetch{
-					Input: BatchInput{
-						Header: InputTemplate{
-							Segments: []TemplateSegment{
-								{
-									Data:        []byte(`{"method":"POST","url":"http://reviews","body":{"query":"query($representations: [_Any!]!){_entities(representations: $representations){__typename ... on Product {reviews {body author {__typename id}}}}}","variables":{"representations":[`),
-									SegmentType: StaticSegmentType,
-								},
-							},
-						},
-						Items: []InputTemplate{
-							{
-								Segments: []TemplateSegment{
-									{
-										SegmentType:  VariableSegmentType,
-										VariableKind: ResolvableObjectVariableKind,
-										Renderer: NewGraphQLVariableResolveRenderer(&Object{
-											Fields: []*Field{
-												{
-													Name: []byte("__typename"),
-													Value: &String{
-														Path: []string{"__typename"},
-													},
-												},
-												{
-													Name: []byte("upc"),
-													Value: &String{
-														Path: []string{"upc"},
-													},
-												},
-											},
-										}),
-									},
-								},
-							},
-						},
-						Separator: InputTemplate{
-							Segments: []TemplateSegment{
-								{
-									Data:        []byte(`,`),
-									SegmentType: StaticSegmentType,
-								},
-							},
-						},
-						Footer: InputTemplate{
-							Segments: []TemplateSegment{
-								{
-									Data:        []byte(`]}}}`),
-									SegmentType: StaticSegmentType,
-								},
-							},
-						},
-					},
-					DataSource: reviewsService,
-					PostProcessing: PostProcessingConfiguration{
-						SelectResponseDataPath: []string{"data", "_entities"},
-					},
-				}, "query.topProducts", ArrayPath("topProducts")),
-				SingleWithPath(&BatchEntityFetch{
-					Input: BatchInput{
-						Header: InputTemplate{
-							Segments: []TemplateSegment{
-								{
-									Data:        []byte(`{"method":"POST","url":"http://stock","body":{"query":"query($representations: [_Any!]!){_entities(representations: $representations){__typename ... on Product {stock}}}","variables":{"representations":[`),
-									SegmentType: StaticSegmentType,
-								},
-							},
-						},
-						Items: []InputTemplate{
-							{
-								Segments: []TemplateSegment{
-									{
-										SegmentType:  VariableSegmentType,
-										VariableKind: ResolvableObjectVariableKind,
-										Renderer: NewGraphQLVariableResolveRenderer(&Object{
-											Fields: []*Field{
-												{
-													Name: []byte("__typename"),
-													Value: &String{
-														Path: []string{"__typename"},
-													},
-												},
-												{
-													Name: []byte("upc"),
-													Value: &String{
-														Path: []string{"upc"},
-													},
-												},
-											},
-										}),
-									},
-								},
-							},
-						},
-						Separator: InputTemplate{
-							Segments: []TemplateSegment{
-								{
-									Data:        []byte(`,`),
-									SegmentType: StaticSegmentType,
-								},
-							},
-						},
-						Footer: InputTemplate{
-							Segments: []TemplateSegment{
-								{
-									Data:        []byte(`]}}}`),
-									SegmentType: StaticSegmentType,
-								},
-							},
-						},
-					},
-					DataSource: stockService,
-					PostProcessing: PostProcessingConfiguration{
-						SelectResponseDataPath: []string{"data", "_entities"},
-					},
-				}, "query.topProducts", ArrayPath("topProducts")),
-			),
-			SingleWithPath(&BatchEntityFetch{
-				Input: BatchInput{
-					Header: InputTemplate{
-						Segments: []TemplateSegment{
-							{
-								Data:        []byte(`{"method":"POST","url":"http://users","body":{"query":"query($representations: [_Any!]!){_entities(representations: $representations){__typename ... on User {name}}}","variables":{"representations":[`),
-								SegmentType: StaticSegmentType,
-							},
-						},
-					},
-					Items: []InputTemplate{
-						{
-							Segments: []TemplateSegment{
-								{
-									SegmentType:  VariableSegmentType,
-									VariableKind: ResolvableObjectVariableKind,
-									Renderer: NewGraphQLVariableResolveRenderer(&Object{
-										Fields: []*Field{
-											{
-												Name: []byte("__typename"),
-												Value: &String{
-													Path: []string{"__typename"},
-												},
-											},
-											{
-												Name: []byte("id"),
-												Value: &String{
-													Path: []string{"id"},
-												},
-											},
-										},
-									}),
-								},
-							},
-						},
-					},
-					Separator: InputTemplate{
-						Segments: []TemplateSegment{
-							{
-								Data:        []byte(`,`),
-								SegmentType: StaticSegmentType,
-							},
-						},
-					},
-					Footer: InputTemplate{
-						Segments: []TemplateSegment{
-							{
-								Data:        []byte(`]}}}`),
-								SegmentType: StaticSegmentType,
-							},
-						},
-					},
-				},
-				DataSource: usersService,
-				PostProcessing: PostProcessingConfiguration{
-					SelectResponseDataPath: []string{"data", "_entities"},
-				},
-			}, "query.topProducts.@.reviews.author", ArrayPath("topProducts"), ArrayPath("reviews"), ObjectPath("author")),
-		),
-		Data: &Object{
-			Fields: []*Field{
-				{
-					Name: []byte("topProducts"),
-					Value: &Array{
-						Path: []string{"topProducts"},
-						Item: &Object{
-							Fields: []*Field{
-								{
-									Name: []byte("name"),
-									Value: &String{
-										Path: []string{"name"},
-									},
-								},
-								{
-									Name: []byte("stock"),
-									Value: &Integer{
-										Path: []string{"stock"},
-									},
-								},
-								{
-									Name: []byte("reviews"),
-									Value: &Array{
-										Path: []string{"reviews"},
-										Item: &Object{
-											Fields: []*Field{
-												{
-													Name: []byte("body"),
-													Value: &String{
-														Path: []string{"body"},
-													},
-												},
-												{
-													Name: []byte("author"),
-													Value: &Object{
-														Path: []string{"author"},
-														Fields: []*Field{
-															{
-																Name: []byte("name"),
-																Value: &String{
-																	Path: []string{"name"},
-																},
-															},
-														},
-													},
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	expected := []byte(`{"data":{"topProducts":[{"name":"Table","stock":8,"reviews":[{"body":"Love Table!","author":{"name":"user-1"}},{"body":"Prefer other Table.","author":{"name":"user-2"}}]},{"name":"Couch","stock":2,"reviews":[{"body":"Couch Too expensive.","author":{"name":"user-1"}}]},{"name":"Chair","stock":5,"reviews":[{"body":"Chair Could be better.","author":{"name":"user-2"}}]}]}}`)
-
-	ctx := NewContext(context.Background())
-	buf := &bytes.Buffer{}
-
-	_, err := resolver.ResolveGraphQLResponse(ctx, plan, nil, buf)
-	assert.NoError(t, err)
-	assert.Equal(t, string(expected), buf.String())
-	assert.Equal(t, 29, ctx.Stats.ResolvedNodes, "resolved nodes")
-	assert.Equal(t, 11, ctx.Stats.ResolvedObjects, "resolved objects")
-	assert.Equal(t, 14, ctx.Stats.ResolvedLeafs, "resolved leafs")
-	assert.Equal(t, int64(711), ctx.Stats.CombinedResponseSize.Load(), "combined response size")
-	assert.Equal(t, int32(4), ctx.Stats.NumberOfFetches.Load(), "number of fetches")
-
-	ctx.Free()
-	ctx = ctx.WithContext(context.Background())
-	buf.Reset()
-	_, err = resolver.ResolveGraphQLResponse(ctx, plan, nil, buf)
-	assert.NoError(t, err)
-	assert.Equal(t, string(expected), buf.String())
-	assert.Equal(t, 29, ctx.Stats.ResolvedNodes, "resolved nodes")
-	assert.Equal(t, 11, ctx.Stats.ResolvedObjects, "resolved objects")
-	assert.Equal(t, 14, ctx.Stats.ResolvedLeafs, "resolved leafs")
-	assert.Equal(t, int64(711), ctx.Stats.CombinedResponseSize.Load(), "combined response size")
-	assert.Equal(t, int32(4), ctx.Stats.NumberOfFetches.Load(), "number of fetches")
 }
 
 func Benchmark_NestedBatching(b *testing.B) {

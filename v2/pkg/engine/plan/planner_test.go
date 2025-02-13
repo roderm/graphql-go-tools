@@ -1,12 +1,22 @@
 package plan
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
-	"strings"
+	"fmt"
+	"reflect"
+	"slices"
 	"testing"
 
+	"github.com/jensneuse/abstractlogger"
+	"github.com/kylelemons/godebug/diff"
+	"github.com/kylelemons/godebug/pretty"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/wundergraph/graphql-go-tools/v2/pkg/ast"
+	"github.com/wundergraph/graphql-go-tools/v2/pkg/engine/datasource/httpclient"
 
 	"github.com/wundergraph/graphql-go-tools/v2/pkg/astnormalization"
 	"github.com/wundergraph/graphql-go-tools/v2/pkg/asttransform"
@@ -44,21 +54,41 @@ func TestPlanner_Plan(t *testing.T) {
 			t.Helper()
 
 			var report operationreport.Report
-			plan := testLogic(t, definition, operation, operationName, config, &report)
+			actualPlan := testLogic(t, definition, operation, operationName, config, &report)
 			if report.HasErrors() {
 				t.Fatal(report.Error())
 			}
-			assert.Equal(t, expectedPlan, plan)
 
-			toJson := func(v interface{}) string {
-				b := &strings.Builder{}
-				e := json.NewEncoder(b)
-				e.SetIndent("", " ")
-				_ = e.Encode(v)
-				return b.String()
+			formatterConfig := map[reflect.Type]interface{}{
+				// normalize byte slices to strings
+				reflect.TypeOf([]byte{}): func(b []byte) string { return fmt.Sprintf(`"%s"`, string(b)) },
+				// normalize map[string]struct{} to json array of keys
+				reflect.TypeOf(map[string]struct{}{}): func(m map[string]struct{}) string {
+					var keys []string
+					for k := range m {
+						keys = append(keys, k)
+					}
+					slices.Sort(keys)
+
+					keysPrinted, _ := json.Marshal(keys)
+					return string(keysPrinted)
+				},
 			}
 
-			assert.Equal(t, toJson(expectedPlan), toJson(plan))
+			prettyCfg := &pretty.Config{
+				Diffable:          true,
+				IncludeUnexported: false,
+				Formatter:         formatterConfig,
+			}
+
+			exp := prettyCfg.Sprint(expectedPlan)
+			act := prettyCfg.Sprint(actualPlan)
+
+			if !assert.Equal(t, exp, act) {
+				if diffResult := diff.Diff(exp, act); diffResult != "" {
+					t.Errorf("Plan does not match(-want +got)\n%s", diffResult)
+				}
+			}
 
 		}
 	}
@@ -95,7 +125,9 @@ func TestPlanner_Plan(t *testing.T) {
 							Path:     []string{"searchResults"},
 							Nullable: true,
 							Item: &resolve.Object{
-								Nullable: true,
+								Nullable:      true,
+								TypeName:      "SearchResult",
+								PossibleTypes: map[string]struct{}{"Human": {}, "Droid": {}, "Starship": {}},
 								Fields: []*resolve.Field{
 									{
 										Name: []byte("name"),
@@ -103,7 +135,15 @@ func TestPlanner_Plan(t *testing.T) {
 											Path:     []string{"name"},
 											Nullable: false,
 										},
-										OnTypeNames: [][]byte{[]byte("Human"), []byte("Droid")},
+										OnTypeNames: [][]byte{[]byte("Droid")},
+									},
+									{
+										Name: []byte("name"),
+										Value: &resolve.String{
+											Path:     []string{"name"},
+											Nullable: false,
+										},
+										OnTypeNames: [][]byte{[]byte("Human")},
 									},
 									{
 										Name: []byte("length"),
@@ -155,8 +195,10 @@ func TestPlanner_Plan(t *testing.T) {
 						{
 							Name: []byte("hero"),
 							Value: &resolve.Object{
-								Path:     []string{"hero"},
-								Nullable: true,
+								Path:          []string{"hero"},
+								Nullable:      true,
+								TypeName:      "Character",
+								PossibleTypes: map[string]struct{}{"Human": {}, "Droid": {}},
 								Fields: []*resolve.Field{
 									{
 										Name: []byte("name"),
@@ -220,8 +262,10 @@ func TestPlanner_Plan(t *testing.T) {
 						{
 							Name: []byte("hero"),
 							Value: &resolve.Object{
-								Path:     []string{"hero"},
-								Nullable: true,
+								Path:          []string{"hero"},
+								Nullable:      true,
+								TypeName:      "Character",
+								PossibleTypes: map[string]struct{}{"Human": {}, "Droid": {}},
 								Fields: []*resolve.Field{
 									{
 										Name: []byte("name"),
@@ -385,7 +429,9 @@ func TestPlanner_Plan(t *testing.T) {
 								{
 									Name: []byte("hero"),
 									Value: &resolve.Object{
-										Path: []string{"hero"},
+										Path:          []string{"hero"},
+										TypeName:      "Character",
+										PossibleTypes: map[string]struct{}{"Character": {}},
 										Fields: []*resolve.Field{
 											{
 												Name: []byte("info"),
@@ -436,7 +482,9 @@ func TestPlanner_Plan(t *testing.T) {
 								{
 									Name: []byte("hero"),
 									Value: &resolve.Object{
-										Path: []string{"hero"},
+										Path:          []string{"hero"},
+										TypeName:      "Character",
+										PossibleTypes: map[string]struct{}{"Character": {}},
 										Fields: []*resolve.Field{
 											{
 												Name: []byte("infos"),
@@ -494,7 +542,9 @@ func TestPlanner_Plan(t *testing.T) {
 								{
 									Name: []byte("hero"),
 									Value: &resolve.Object{
-										Path: []string{"hero"},
+										Path:          []string{"hero"},
+										TypeName:      "Character",
+										PossibleTypes: map[string]struct{}{"Character": {}},
 										Fields: []*resolve.Field{
 											{
 												Name: []byte("info"),
@@ -539,8 +589,10 @@ var expectedMyHeroPlan = &SynchronousResponsePlan{
 						Column: 6,
 					},
 					Value: &resolve.Object{
-						Path:     []string{"hero"},
-						Nullable: true,
+						Path:          []string{"hero"},
+						Nullable:      true,
+						TypeName:      "Character",
+						PossibleTypes: map[string]struct{}{"Human": {}, "Droid": {}},
 						Fields: []*resolve.Field{
 							{
 								Name: []byte("name"),
@@ -580,8 +632,10 @@ var expectedMyHeroPlanWithFragment = &SynchronousResponsePlan{
 						Column: 6,
 					},
 					Value: &resolve.Object{
-						Path:     []string{"hero"},
-						Nullable: true,
+						Path:          []string{"hero"},
+						Nullable:      true,
+						TypeName:      "Character",
+						PossibleTypes: map[string]struct{}{"Human": {}, "Droid": {}},
 						Fields: []*resolve.Field{
 							{
 								Name: []byte("name"),
@@ -700,3 +754,89 @@ type Starship implements Vehicle {
     length: Float!
 }
 `
+
+type StatefulSource struct {
+}
+
+func (s *StatefulSource) Start() {
+
+}
+
+type FakeFactory[T any] struct {
+	upstreamSchema *ast.Document
+}
+
+func (f *FakeFactory[T]) UpstreamSchema(dataSourceConfig DataSourceConfiguration[T]) (*ast.Document, bool) {
+	return f.upstreamSchema, true
+}
+
+func (f *FakeFactory[T]) Planner(logger abstractlogger.Logger) DataSourcePlanner[T] {
+	source := &StatefulSource{}
+	go source.Start()
+	return &FakePlanner[T]{
+		source:         source,
+		upstreamSchema: f.upstreamSchema,
+	}
+}
+
+func (f *FakeFactory[T]) Context() context.Context {
+	return context.TODO()
+}
+
+type FakePlanner[T any] struct {
+	id             int
+	source         *StatefulSource
+	upstreamSchema *ast.Document
+}
+
+func (f *FakePlanner[T]) ID() int {
+	return f.id
+}
+
+func (f *FakePlanner[T]) SetID(id int) {
+	f.id = id
+}
+
+func (f *FakePlanner[T]) EnterDocument(operation, definition *ast.Document) {
+
+}
+
+func (f *FakePlanner[T]) Register(visitor *Visitor, _ DataSourceConfiguration[T], _ DataSourcePlannerConfiguration) error {
+	visitor.Walker.RegisterEnterDocumentVisitor(f)
+	return nil
+}
+
+func (f *FakePlanner[T]) ConfigureFetch() resolve.FetchConfiguration {
+	return resolve.FetchConfiguration{
+		DataSource: &FakeDataSource{
+			source: f.source,
+		},
+	}
+}
+
+func (f *FakePlanner[T]) ConfigureSubscription() SubscriptionConfiguration {
+	return SubscriptionConfiguration{}
+}
+
+func (f *FakePlanner[T]) DataSourcePlanningBehavior() DataSourcePlanningBehavior {
+	return DataSourcePlanningBehavior{
+		MergeAliasedRootNodes:      false,
+		OverrideFieldPathFromAlias: false,
+	}
+}
+
+func (f *FakePlanner[T]) DownstreamResponseFieldAlias(downstreamFieldRef int) (alias string, exists bool) {
+	return
+}
+
+type FakeDataSource struct {
+	source *StatefulSource
+}
+
+func (f *FakeDataSource) Load(ctx context.Context, input []byte, out *bytes.Buffer) (err error) {
+	return
+}
+
+func (f *FakeDataSource) LoadWithFiles(ctx context.Context, input []byte, files []httpclient.File, out *bytes.Buffer) (err error) {
+	return
+}

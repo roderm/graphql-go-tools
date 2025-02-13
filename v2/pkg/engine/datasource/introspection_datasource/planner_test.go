@@ -154,6 +154,10 @@ func TestIntrospectionDataSourcePlanning(t *testing.T) {
 							Value: &resolve.Object{
 								Path:     []string{"__type"},
 								Nullable: true,
+								PossibleTypes: map[string]struct{}{
+									"__Type": {},
+								},
+								TypeName: "__Type",
 								Fields: []*resolve.Field{
 									{
 										Name: []byte("name"),
@@ -168,8 +172,20 @@ func TestIntrospectionDataSourcePlanning(t *testing.T) {
 									},
 									{
 										Name: []byte("kind"),
-										Value: &resolve.String{
-											Path: []string{"kind"},
+										Value: &resolve.Enum{
+											TypeName: "__TypeKind",
+											Path:     []string{"kind"},
+											Values: []string{
+												"SCALAR",
+												"OBJECT",
+												"INTERFACE",
+												"UNION",
+												"ENUM",
+												"INPUT_OBJECT",
+												"LIST",
+												"NON_NULL",
+											},
+											InaccessibleValues: []string{},
 										},
 										Position: resolve.Position{
 											Line:   5,
@@ -210,11 +226,19 @@ func TestIntrospectionDataSourcePlanning(t *testing.T) {
 							},
 							Value: &resolve.Object{
 								Path: []string{"__schema"},
+								PossibleTypes: map[string]struct{}{
+									"__Schema": {},
+								},
+								TypeName: "__Schema",
 								Fields: []*resolve.Field{
 									{
 										Name: []byte("queryType"),
 										Value: &resolve.Object{
-											Path: []string{"queryType"},
+											PossibleTypes: map[string]struct{}{
+												"__Type": {},
+											},
+											TypeName: "__Type",
+											Path:     []string{"queryType"},
 											Fields: []*resolve.Field{
 												{
 													Name: []byte("name"),
@@ -268,11 +292,19 @@ func TestIntrospectionDataSourcePlanning(t *testing.T) {
 							},
 							Value: &resolve.Object{
 								Path: []string{"__schema"},
+								PossibleTypes: map[string]struct{}{
+									"__Schema": {},
+								},
+								TypeName: "__Schema",
 								Fields: []*resolve.Field{
 									{
 										Name: []byte("queryType"),
 										Value: &resolve.Object{
 											Path: []string{"queryType"},
+											PossibleTypes: map[string]struct{}{
+												"__Type": {},
+											},
+											TypeName: "__Type",
 											Fields: []*resolve.Field{
 												{
 													Name: []byte("name"),
@@ -297,6 +329,10 @@ func TestIntrospectionDataSourcePlanning(t *testing.T) {
 										Value: &resolve.Object{
 											Path:     []string{"mutationType"},
 											Nullable: true,
+											PossibleTypes: map[string]struct{}{
+												"__Type": {},
+											},
+											TypeName: "__Type",
 											Fields: []*resolve.Field{
 												{
 													Name: []byte("name"),
@@ -321,6 +357,10 @@ func TestIntrospectionDataSourcePlanning(t *testing.T) {
 										Value: &resolve.Object{
 											Path:     []string{"subscriptionType"},
 											Nullable: true,
+											PossibleTypes: map[string]struct{}{
+												"__Type": {},
+											},
+											TypeName: "__Type",
 											Fields: []*resolve.Field{
 												{
 													Name: []byte("name"),
@@ -381,6 +421,10 @@ func TestIntrospectionDataSourcePlanning(t *testing.T) {
 							Value: &resolve.Object{
 								Path:     []string{"__type"},
 								Nullable: true,
+								PossibleTypes: map[string]struct{}{
+									"__Type": {},
+								},
+								TypeName: "__Type",
 								Fetches: []resolve.Fetch{
 									&resolve.SingleFetch{
 										FetchDependencies: resolve.FetchDependencies{
@@ -436,6 +480,10 @@ func TestIntrospectionDataSourcePlanning(t *testing.T) {
 											Path:     []string{"fields"},
 											Nullable: true,
 											Item: &resolve.Object{
+												PossibleTypes: map[string]struct{}{
+													"__Field": {},
+												},
+												TypeName: "__Field",
 												Fields: []*resolve.Field{
 													{
 														Name: []byte("name"),
@@ -460,6 +508,10 @@ func TestIntrospectionDataSourcePlanning(t *testing.T) {
 											Path:     []string{"enumValues"},
 											Nullable: true,
 											Item: &resolve.Object{
+												PossibleTypes: map[string]struct{}{
+													"__EnumValue": {},
+												},
+												TypeName: "__EnumValue",
 												Fields: []*resolve.Field{
 													{
 														Name: []byte("name"),

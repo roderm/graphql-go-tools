@@ -19,6 +19,7 @@ const (
 type Fetch interface {
 	FetchKind() FetchKind
 	Dependencies() FetchDependencies
+	DataSourceInfo() DataSourceInfo
 }
 
 type FetchItem struct {
@@ -82,6 +83,13 @@ func (s *SingleFetch) Dependencies() FetchDependencies {
 	return s.FetchDependencies
 }
 
+func (s *SingleFetch) DataSourceInfo() DataSourceInfo {
+	return DataSourceInfo{
+		ID:   s.Info.DataSourceID,
+		Name: s.Info.DataSourceName,
+	}
+}
+
 // FetchDependencies holding current fetch id and ids of fetches that current fetch depends on
 // e.g. should be fetched only after all dependent fetches are fetched
 type FetchDependencies struct {
@@ -96,12 +104,6 @@ type PostProcessingConfiguration struct {
 	// If this is set, the response will be considered an error if the jsonparser.Get call returns a non-empty value
 	// The value will be expected to be a GraphQL error object
 	SelectResponseErrorsPath []string
-	// ResponseTemplate is processed after the SelectResponseDataPath is applied
-	// It can be used to "render" the response data into a different format
-	// E.g. when you're making a representations Request with two entities, you will get back an array of two objects
-	// However, you might want to render this into a single object with two properties
-	// This can be done with a ResponseTemplate
-	ResponseTemplate *InputTemplate
 	// MergePath can be defined to merge the result of the post-processing into the parent object at the given path
 	// e.g. if the parent is {"a":1}, result is {"foo":"bar"} and the MergePath is ["b"],
 	// the result will be {"a":1,"b":{"foo":"bar"}}
@@ -151,6 +153,13 @@ func (b *BatchEntityFetch) Dependencies() FetchDependencies {
 	return b.FetchDependencies
 }
 
+func (b *BatchEntityFetch) DataSourceInfo() DataSourceInfo {
+	return DataSourceInfo{
+		ID:   b.Info.DataSourceID,
+		Name: b.Info.DataSourceName,
+	}
+}
+
 type BatchInput struct {
 	Header InputTemplate
 	Items  []InputTemplate
@@ -186,6 +195,13 @@ func (e *EntityFetch) Dependencies() FetchDependencies {
 	return e.FetchDependencies
 }
 
+func (e *EntityFetch) DataSourceInfo() DataSourceInfo {
+	return DataSourceInfo{
+		ID:   e.Info.DataSourceID,
+		Name: e.Info.DataSourceName,
+	}
+}
+
 type EntityInput struct {
 	Header      InputTemplate
 	Item        InputTemplate
@@ -212,6 +228,10 @@ func (p *ParallelListItemFetch) Dependencies() FetchDependencies {
 
 func (_ *ParallelListItemFetch) FetchKind() FetchKind {
 	return FetchKindParallelListItem
+}
+
+func (p *ParallelListItemFetch) DataSourceInfo() DataSourceInfo {
+	return p.Fetch.DataSourceInfo()
 }
 
 type QueryPlan struct {

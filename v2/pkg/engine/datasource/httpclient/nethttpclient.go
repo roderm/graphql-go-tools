@@ -15,7 +15,6 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/buger/jsonparser"
@@ -71,6 +70,8 @@ type responseContextKey struct{}
 
 type ResponseContext struct {
 	StatusCode int
+	Request    *http.Request
+	Response   *http.Response
 }
 
 func InjectResponseContext(ctx context.Context) (context.Context, *ResponseContext) {
@@ -78,9 +79,21 @@ func InjectResponseContext(ctx context.Context) (context.Context, *ResponseConte
 	return context.WithValue(ctx, responseContextKey{}, value), value
 }
 
-func setResponseStatusCode(ctx context.Context, statusCode int) {
+func setRequest(ctx context.Context, request *http.Request) {
 	if value, ok := ctx.Value(responseContextKey{}).(*ResponseContext); ok {
-		value.StatusCode = statusCode
+		value.Request = request
+	}
+}
+
+func setResponseStatus(ctx context.Context, request *http.Request, response *http.Response) {
+	if value, ok := ctx.Value(responseContextKey{}).(*ResponseContext); ok {
+		if response != nil {
+			value.StatusCode = response.StatusCode
+		} else {
+			value.StatusCode = 0
+		}
+		value.Request = request
+		value.Response = response
 	}
 }
 
@@ -114,23 +127,6 @@ func respBodyReader(res *http.Response) (io.Reader, error) {
 	default:
 		return res.Body, nil
 	}
-}
-
-var (
-	requestBufferPool = &sync.Pool{
-		New: func() any {
-			return &bytes.Buffer{}
-		},
-	}
-)
-
-func getBuffer() *bytes.Buffer {
-	return requestBufferPool.Get().(*bytes.Buffer)
-}
-
-func releaseBuffer(buf *bytes.Buffer) {
-	buf.Reset()
-	requestBufferPool.Put(buf)
 }
 
 type bodyHashContextKey struct{}
@@ -203,13 +199,15 @@ func makeHTTPRequest(client *http.Client, ctx context.Context, url, method, head
 	request.Header.Set(AcceptEncodingHeader, EncodingGzip)
 	request.Header.Add(AcceptEncodingHeader, EncodingDeflate)
 
+	setRequest(ctx, request)
+
 	response, err := client.Do(request)
 	if err != nil {
 		return err
 	}
 	defer response.Body.Close()
 
-	setResponseStatusCode(ctx, response.StatusCode)
+	setResponseStatus(ctx, request, response)
 
 	respReader, err := respBodyReader(response)
 	if err != nil {
@@ -217,14 +215,16 @@ func makeHTTPRequest(client *http.Client, ctx context.Context, url, method, head
 	}
 
 	if !enableTrace {
+		if response.ContentLength > 0 {
+			out.Grow(int(response.ContentLength))
+		} else {
+			out.Grow(1024 * 4)
+		}
 		_, err = out.ReadFrom(respReader)
 		return
 	}
 
-	buf := getBuffer()
-	defer releaseBuffer(buf)
-
-	_, err = buf.ReadFrom(respReader)
+	data, err := io.ReadAll(respReader)
 	if err != nil {
 		return err
 	}
@@ -238,14 +238,14 @@ func makeHTTPRequest(client *http.Client, ctx context.Context, url, method, head
 			StatusCode: response.StatusCode,
 			Status:     response.Status,
 			Headers:    redactHeaders(response.Header),
-			BodySize:   buf.Len(),
+			BodySize:   len(data),
 		},
 	}
 	trace, err := json.Marshal(responseTrace)
 	if err != nil {
 		return err
 	}
-	responseWithTraceExtension, err := jsonparser.Set(buf.Bytes(), trace, "extensions", "trace")
+	responseWithTraceExtension, err := jsonparser.Set(data, trace, "extensions", "trace")
 	if err != nil {
 		return err
 	}

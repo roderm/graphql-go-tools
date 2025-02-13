@@ -2,6 +2,7 @@ package plan
 
 import (
 	"github.com/jensneuse/abstractlogger"
+
 	"github.com/wundergraph/graphql-go-tools/v2/pkg/engine/resolve"
 )
 
@@ -11,11 +12,14 @@ type Configuration struct {
 	DataSources                []DataSource
 	Fields                     FieldConfigurations
 	Types                      TypeConfigurations
+	EntityInterfaceNames       []string
 	// DisableResolveFieldPositions should be set to true for testing purposes
 	// This setting removes position information from all fields
 	// In production, this should be set to false so that error messages are easier to understand
 	DisableResolveFieldPositions bool
-	CustomResolveMap             map[string]resolve.CustomResolve
+	// EnableOperationNamePropagation appends the operation name from nested operations
+	EnableOperationNamePropagation bool
+	CustomResolveMap               map[string]resolve.CustomResolve
 
 	// Debug - configure debug options
 	Debug DebugConfiguration
@@ -26,16 +30,23 @@ type Configuration struct {
 }
 
 type DebugConfiguration struct {
-	PrintOperationTransformations         bool
-	PrintOperationEnableASTRefs           bool
-	PrintPlanningPaths                    bool
-	PrintQueryPlans                       bool
-	PrintNodeSuggestions                  bool
-	EnableNodeSuggestionsSelectionReasons bool
+	PrintOperationTransformations bool
+	PrintOperationEnableASTRefs   bool
+	PrintPlanningPaths            bool
+	PrintQueryPlans               bool
 
+	PrintNodeSuggestions bool
+	NodeSuggestion       NodeSuggestionDebugConfiguration
+
+	NodeSelectionVisitor bool
 	ConfigurationVisitor bool
 	PlanningVisitor      bool
 	DatasourceVisitor    bool
+}
+
+type NodeSuggestionDebugConfiguration struct {
+	SelectionReasons  bool
+	FilterNotSelected bool
 }
 
 type TypeConfigurations []TypeConfiguration

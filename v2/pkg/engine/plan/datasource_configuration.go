@@ -8,6 +8,7 @@ import (
 	"github.com/jensneuse/abstractlogger"
 
 	"github.com/wundergraph/graphql-go-tools/v2/pkg/ast"
+	"github.com/wundergraph/graphql-go-tools/v2/pkg/astvisitor"
 	"github.com/wundergraph/graphql-go-tools/v2/pkg/engine/resolve"
 )
 
@@ -23,6 +24,7 @@ type PlannerFactory[DataSourceSpecificConfiguration any] interface {
 	// For stateful datasources, the factory should contain cancellable global execution context
 	// This method serves as a flag that factory should have a context
 	Context() context.Context
+	UpstreamSchema(dataSourceConfig DataSourceConfiguration[DataSourceSpecificConfiguration]) (*ast.Document, bool)
 }
 
 type DataSourceMetadata struct {
@@ -41,8 +43,8 @@ type DataSourceMetadata struct {
 	ChildNodes TypeFields
 	Directives *DirectiveConfigurations
 
-	rootNodesIndex  map[string]map[string]struct{}
-	childNodesIndex map[string]map[string]struct{}
+	rootNodesIndex  map[string]fieldsIndex
+	childNodesIndex map[string]fieldsIndex
 }
 
 type DirectivesConfigurations interface {
@@ -56,9 +58,16 @@ type NodesAccess interface {
 
 type NodesInfo interface {
 	HasRootNode(typeName, fieldName string) bool
+	HasExternalRootNode(typeName, fieldName string) bool
 	HasRootNodeWithTypename(typeName string) bool
 	HasChildNode(typeName, fieldName string) bool
+	HasExternalChildNode(typeName, fieldName string) bool
 	HasChildNodeWithTypename(typeName string) bool
+}
+
+type fieldsIndex struct {
+	fields         map[string]struct{}
+	externalFields map[string]struct{}
 }
 
 func (d *DataSourceMetadata) InitNodesIndex() {
@@ -66,24 +75,36 @@ func (d *DataSourceMetadata) InitNodesIndex() {
 		return
 	}
 
-	d.rootNodesIndex = make(map[string]map[string]struct{})
-	d.childNodesIndex = make(map[string]map[string]struct{})
+	d.rootNodesIndex = make(map[string]fieldsIndex, len(d.RootNodes))
+	d.childNodesIndex = make(map[string]fieldsIndex, len(d.ChildNodes))
 
 	for i := range d.RootNodes {
 		if _, ok := d.rootNodesIndex[d.RootNodes[i].TypeName]; !ok {
-			d.rootNodesIndex[d.RootNodes[i].TypeName] = make(map[string]struct{})
+			d.rootNodesIndex[d.RootNodes[i].TypeName] = fieldsIndex{
+				make(map[string]struct{}, len(d.RootNodes[i].FieldNames)),
+				make(map[string]struct{}, len(d.RootNodes[i].ExternalFieldNames)),
+			}
 		}
 		for j := range d.RootNodes[i].FieldNames {
-			d.rootNodesIndex[d.RootNodes[i].TypeName][d.RootNodes[i].FieldNames[j]] = struct{}{}
+			d.rootNodesIndex[d.RootNodes[i].TypeName].fields[d.RootNodes[i].FieldNames[j]] = struct{}{}
+		}
+		for j := range d.RootNodes[i].ExternalFieldNames {
+			d.rootNodesIndex[d.RootNodes[i].TypeName].externalFields[d.RootNodes[i].ExternalFieldNames[j]] = struct{}{}
 		}
 	}
 
 	for i := range d.ChildNodes {
 		if _, ok := d.childNodesIndex[d.ChildNodes[i].TypeName]; !ok {
-			d.childNodesIndex[d.ChildNodes[i].TypeName] = make(map[string]struct{})
+			d.childNodesIndex[d.ChildNodes[i].TypeName] = fieldsIndex{
+				make(map[string]struct{}),
+				make(map[string]struct{}),
+			}
 		}
 		for j := range d.ChildNodes[i].FieldNames {
-			d.childNodesIndex[d.ChildNodes[i].TypeName][d.ChildNodes[i].FieldNames[j]] = struct{}{}
+			d.childNodesIndex[d.ChildNodes[i].TypeName].fields[d.ChildNodes[i].FieldNames[j]] = struct{}{}
+		}
+		for j := range d.ChildNodes[i].ExternalFieldNames {
+			d.childNodesIndex[d.ChildNodes[i].TypeName].externalFields[d.ChildNodes[i].ExternalFieldNames[j]] = struct{}{}
 		}
 	}
 }
@@ -97,12 +118,24 @@ func (d *DataSourceMetadata) HasRootNode(typeName, fieldName string) bool {
 		return false
 	}
 
-	fields, ok := d.rootNodesIndex[typeName]
+	index, ok := d.rootNodesIndex[typeName]
 	if !ok {
 		return false
 	}
 
-	_, ok = fields[fieldName]
+	_, ok = index.fields[fieldName]
+	return ok
+}
+
+func (d *DataSourceMetadata) HasExternalRootNode(typeName, fieldName string) bool {
+	if d.rootNodesIndex == nil {
+		return false
+	}
+	index, ok := d.rootNodesIndex[typeName]
+	if !ok {
+		return false
+	}
+	_, ok = index.externalFields[fieldName]
 	return ok
 }
 
@@ -118,12 +151,24 @@ func (d *DataSourceMetadata) HasChildNode(typeName, fieldName string) bool {
 	if d.childNodesIndex == nil {
 		return false
 	}
-	fields, ok := d.childNodesIndex[typeName]
+	index, ok := d.childNodesIndex[typeName]
 	if !ok {
 		return false
 	}
 
-	_, ok = fields[fieldName]
+	_, ok = index.fields[fieldName]
+	return ok
+}
+
+func (d *DataSourceMetadata) HasExternalChildNode(typeName, fieldName string) bool {
+	if d.childNodesIndex == nil {
+		return false
+	}
+	index, ok := d.childNodesIndex[typeName]
+	if !ok {
+		return false
+	}
+	_, ok = index.externalFields[fieldName]
 	return ok
 }
 
@@ -181,22 +226,27 @@ type DataSourceConfiguration[T any] interface {
 	CustomConfiguration() T
 }
 
+type DataSourceUpstreamSchema interface {
+	UpstreamSchema() (*ast.Document, bool)
+}
+
 type DataSource interface {
 	FederationInfo
 	NodesInfo
 	DirectivesConfigurations
+	DataSourceUpstreamSchema
 	Id() string
 	Name() string
 	Hash() DSHash
 	FederationConfiguration() FederationMetaData
-	CreatePlannerConfiguration(logger abstractlogger.Logger, fetchConfig *objectFetchConfiguration, pathConfig *plannerPathsConfiguration) PlannerConfiguration
+	CreatePlannerConfiguration(logger abstractlogger.Logger, fetchConfig *objectFetchConfiguration, pathConfig *plannerPathsConfiguration, configuration Configuration) PlannerConfiguration
 }
 
 func (d *dataSourceConfiguration[T]) CustomConfiguration() T {
 	return d.custom
 }
 
-func (d *dataSourceConfiguration[T]) CreatePlannerConfiguration(logger abstractlogger.Logger, fetchConfig *objectFetchConfiguration, pathConfig *plannerPathsConfiguration) PlannerConfiguration {
+func (d *dataSourceConfiguration[T]) CreatePlannerConfiguration(logger abstractlogger.Logger, fetchConfig *objectFetchConfiguration, pathConfig *plannerPathsConfiguration, configuration Configuration) PlannerConfiguration {
 	planner := d.factory.Planner(logger)
 
 	fetchConfig.planner = planner
@@ -206,10 +256,16 @@ func (d *dataSourceConfiguration[T]) CreatePlannerConfiguration(logger abstractl
 		objectFetchConfiguration:  fetchConfig,
 		plannerPathsConfiguration: pathConfig,
 		planner:                   planner,
-		providedFields:            NewNodeSuggestionsWithSize(4),
+		options: plannerConfigurationOptions{
+			EnableOperationNamePropagation: configuration.EnableOperationNamePropagation,
+		},
 	}
 
 	return plannerConfig
+}
+
+func (d *dataSourceConfiguration[T]) UpstreamSchema() (*ast.Document, bool) {
+	return d.factory.UpstreamSchema(d)
 }
 
 func (d *dataSourceConfiguration[T]) Id() string {
@@ -230,10 +286,11 @@ func (d *dataSourceConfiguration[T]) Hash() DSHash {
 
 type DataSourcePlannerConfiguration struct {
 	RequiredFields FederationFieldConfigurations
-	ProvidedFields *NodeSuggestions
 	ParentPath     string
 	PathType       PlannerPathType
 	IsNested       bool
+	Options        plannerConfigurationOptions
+	FetchID        int
 }
 
 type PlannerPathType int
@@ -307,8 +364,7 @@ type DataSourcePlanningBehavior struct {
 	// When true expected response will be { "rootField": ..., "alias": ... }
 	// When false expected response will be { "rootField": ..., "original": ... }
 	OverrideFieldPathFromAlias bool
-	// IncludeTypeNameFields should be set to true if the planner wants to get EnterField & LeaveField events
-	// for __typename fields
+	// IncludeTypeNameFields should be set to true if the planner allows to plan __typename fields
 	IncludeTypeNameFields bool
 }
 
@@ -343,11 +399,15 @@ type DataSourceBehavior interface {
 	DownstreamResponseFieldAlias(downstreamFieldRef int) (alias string, exists bool)
 }
 
+type Identifyable interface {
+	astvisitor.VisitorIdentifier
+}
+
 type DataSourcePlanner[T any] interface {
 	DataSourceFetchPlanner
 	DataSourceBehavior
+	Identifyable
 	Register(visitor *Visitor, configuration DataSourceConfiguration[T], dataSourcePlannerConfiguration DataSourcePlannerConfiguration) error
-	UpstreamSchema(dataSourceConfig DataSourceConfiguration[T]) (doc *ast.Document, ok bool)
 }
 
 type SubscriptionConfiguration struct {
