@@ -1,5 +1,33 @@
 # Changelog
 
+## [2.0.0-rc.156](https://github.com/wundergraph/graphql-go-tools/compare/v2.0.0-rc.155...v2.0.0-rc.156) (2025-02-18)
+
+
+### Features
+
+* apollo-router-like non-ok http status errors ([#1072](https://github.com/wundergraph/graphql-go-tools/issues/1072)) ([e685c29](https://github.com/wundergraph/graphql-go-tools/commit/e685c29331c0d1879ff8e099d4441047fbddf054))
+
+## [2.0.0-rc.155](https://github.com/wundergraph/graphql-go-tools/compare/v2.0.0-rc.154...v2.0.0-rc.155) (2025-02-15)
+
+
+### Bug Fixes
+
+* deadlock when waiting on inflight events of a trigger ([#1073](https://github.com/wundergraph/graphql-go-tools/issues/1073)) ([8a2b33c](https://github.com/wundergraph/graphql-go-tools/commit/8a2b33c289a921f53518e795a205fba9d4bd7058))
+
+## [2.0.0-rc.154](https://github.com/wundergraph/graphql-go-tools/compare/v2.0.0-rc.153...v2.0.0-rc.154) (2025-02-14)
+
+
+### Bug Fixes
+
+* use correct compatibility spelling ([#1070](https://github.com/wundergraph/graphql-go-tools/issues/1070)) ([9b3d93b](https://github.com/wundergraph/graphql-go-tools/commit/9b3d93b072169f84e41977d9091b1415c33b150d))
+
+## [2.0.0-rc.153](https://github.com/wundergraph/graphql-go-tools/compare/v2.0.0-rc.152...v2.0.0-rc.153) (2025-02-14)
+
+
+### Features
+
+* add apollo router compat flag for invalid variable rendering ([#1067](https://github.com/wundergraph/graphql-go-tools/issues/1067)) ([e87961f](https://github.com/wundergraph/graphql-go-tools/commit/e87961fcd13f4dde76432745c564950f56f5045d))
+
 ## [2.0.0-rc.152](https://github.com/wundergraph/graphql-go-tools/compare/v2.0.0-rc.151...v2.0.0-rc.152) (2025-02-13)
 
 
