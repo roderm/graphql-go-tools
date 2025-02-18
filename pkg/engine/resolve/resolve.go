@@ -1289,7 +1289,7 @@ func (r *Resolver) recursivelySkipBatchResults(ctx *Context, object *Object, dat
 	if object.Fetch != nil && object.Fetch.FetchKind() == FetchKindBatch {
 		set := r.getResultSet()
 		defer r.freeResultSet(set)
-		_ = r.resolveFetch(ctx, object.Fetch, data, set)
+		// _ = r.resolveFetch(ctx, object.Fetch, data, set)
 	}
 	for i := range object.Fields {
 		value := object.Fields[i].Value
